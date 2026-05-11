@@ -1,0 +1,79 @@
+{
+  "rew_version": "0.2.0",
+  "openxla_xla_rev": "bb760b047bdbfeff962f0366ad5cc782c98657e0",
+  "expected_pjrt_api_version": { "major": 0, "minor": 107 },
+  "slots": {
+    "x86_64-linux-gnu-cpu": {
+      "source": "vendor",
+      "url": "https://github.com/gomlx/pjrt-cpu-binaries/releases/download/v0.104.0/pjrt_cpu_linux_amd64.tar.gz",
+      "archive_member": "pjrt_c_api_cpu_v0.104.0_plugin.so",
+      "sha256": "1186cc0f95ba7847a96e689a6d4475aec0577122384b606f19beb94f15cc1e09"
+    },
+    "aarch64-linux-gnu-cpu": {
+      "source": "vendor",
+      "url": "https://github.com/gomlx/pjrt-cpu-binaries/releases/download/v0.104.0/pjrt_cpu_linux_arm64.tar.gz",
+      "archive_member": "pjrt_c_api_cpu_v0.104.0_plugin.so",
+      "sha256": "8a282e236237da0a79ce678302173f147afd13a8a3ff6cd002f555f35c96366e"
+    },
+    "aarch64-darwin-cpu": {
+      "source": "vendor",
+      "url": "https://github.com/gomlx/pjrt-cpu-binaries/releases/download/v0.104.0/pjrt_cpu_darwin_arm64.tar.gz",
+      "archive_member": "pjrt_c_api_cpu_v0.104.0_plugin.so",
+      "sha256": "17cf976de65dc38ecf73d2010dfa52501e1f1c9466a26f59276b16ae087a41f4"
+    },
+    "x86_64-windows-cpu": {
+      "source": "vendor",
+      "url": "https://github.com/gomlx/pjrt-cpu-binaries/releases/download/v0.104.0/pjrt_cpu_windows_amd64.zip",
+      "archive_member": "pjrt_c_api_cpu_v0.104.0_plugin.dll",
+      "sha256": "4e5baae2b87628164b644d0959a74845d86d27bed931f2274e8e05e43a2cedb0"
+    },
+    "x86_64-linux-gnu-cuda12": {
+      "source": "vendor_wheel",
+      "url": "https://files.pythonhosted.org/packages/5f/78/a3d9ceda0793f4fb43daa292af7b801932611a1aed442636ddfc93d58c7a/jax_cuda12_pjrt-0.10.0-py3-none-manylinux_2_27_x86_64.whl",
+      "archive_member": "jax_plugins/xla_cuda12/xla_cuda_plugin.so",
+      "sha256": "309515453f59caad95bf76c8bc649c24bc0e3d12d07baf3cf792be082abdee3b"
+    },
+    "aarch64-linux-gnu-cuda12": {
+      "source": "vendor_wheel",
+      "url": "https://files.pythonhosted.org/packages/d5/1b/98575de81c20ce4142ea3e9b3a7416182427565617bf1afa319e1b66130b/jax_cuda12_pjrt-0.10.0-py3-none-manylinux_2_27_aarch64.whl",
+      "archive_member": "jax_plugins/xla_cuda12/xla_cuda_plugin.so",
+      "sha256": "36ac316c588a0e08eb64f868270526adca3856d4b70b13760b7e9b73be85d2cf"
+    },
+    "x86_64-linux-gnu-cuda13": {
+      "source": "vendor_wheel",
+      "url": "https://files.pythonhosted.org/packages/21/98/77f15d81fd0637da454e453c8456d4a2b5c8b2e66823b4237ee8689152cf/jax_cuda13_pjrt-0.10.0-py3-none-manylinux_2_27_x86_64.whl",
+      "archive_member": "jax_plugins/xla_cuda13/xla_cuda_plugin.so",
+      "sha256": "848d6ae3e663d040c53e902ea9d380a902bfa5e7da881053cec408360036fa7a"
+    },
+    "aarch64-linux-gnu-cuda13": {
+      "source": "vendor_wheel",
+      "url": "https://files.pythonhosted.org/packages/8a/7b/222e957b28c38b6ae37cbcf0e397c9f2b5be0c08236ddf72c545d185b3f5/jax_cuda13_pjrt-0.10.0-py3-none-manylinux_2_27_aarch64.whl",
+      "archive_member": "jax_plugins/xla_cuda13/xla_cuda_plugin.so",
+      "sha256": "18f8dcd3b18778f5174bc01313c214c5cb8bfb3fb1c3d01344795d7424fe2b51"
+    },
+    "x86_64-linux-gnu-rocm": {
+      "source": "vendor_wheel",
+      "url": "https://files.pythonhosted.org/packages/c5/5a/b59ad3df1f8907e067b919e01d4be5aec4a5397d9e62a7debd69926dd632/jax_rocm7_pjrt-0.9.2.post1-py3-none-manylinux_2_28_x86_64.whl",
+      "archive_member": "jax_plugins/xla_rocm7/xla_rocm_plugin.so",
+      "sha256": "122930ac6b41992bd9b1d7074f88c948fe19295fadb314feca86831573323c41"
+    },
+    "x86_64-darwin-metal": {
+      "source": "vendor_wheel",
+      "url": "https://files.pythonhosted.org/packages/87/ec/9bb7f7f0ffd06c3fb89813126b2f698636ac7a4263ed7bdd1ff7d7c94f8f/jax_metal-0.1.1-py3-none-macosx_10_14_x86_64.whl",
+      "archive_member": "jax_plugins/metal_plugin/pjrt_plugin_metal_14.dylib",
+      "sha256": "d918a78443cb808c9491a24a5c2a94cc4eabfd0461d5bcda29a8f332dfbe9b7e"
+    },
+    "aarch64-darwin-metal": {
+      "source": "vendor_wheel",
+      "url": "https://files.pythonhosted.org/packages/09/dc/6d8fbfc29d902251cf333414cf7dcfaf4b252a9920c881354584ed36270d/jax_metal-0.1.1-py3-none-macosx_13_0_arm64.whl",
+      "archive_member": "jax_plugins/metal_plugin/pjrt_plugin_metal_14.dylib",
+      "sha256": "f1dbfecb298cdd3ba6da3ad6dc9a2adb63d71741f8b8ece28c296b32d608b6c8"
+    },
+    "x86_64-linux-gnu-tpu": {
+      "source": "vendor_wheel",
+      "url": "https://files.pythonhosted.org/packages/6a/6b/9c60c307edf5a0643e2c7f40786dbb0bbf7c2bcbbf6bb24ff4ff8685b1b8/libtpu-0.0.40-cp311-cp311-manylinux_2_31_x86_64.whl",
+      "archive_member": "libtpu/libtpu.so",
+      "sha256": "35885715028faf6f60f96fedf95f7110c42f7685d20fddd8c31e741d29c1ddca"
+    }
+  }
+}

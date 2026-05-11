@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / nim ${{ matrix.nim }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        nim: ['stable']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ matrix.nim }}
+      - name: nimble lint (architectural lints)
+        run: nimble lint -y
+      - name: nimble test (debug + release + danger)
+        run: nimble test -y
+
+  cuda:
+    # Optional GPU smoke. Only runs when a self-hosted CUDA runner is
+    # registered with the `cuda` label. Otherwise this job is skipped.
+    name: cuda smoke
+    runs-on: [self-hosted, cuda]
+    if: ${{ vars.HAS_CUDA_RUNNER == 'true' }}
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: 'stable'
+      - name: Fetch CUDA 12 PJRT plugin
+        run: nimble fetch cuda12 -y
+      - name: Tests on CUDA
+        env:
+          REW_TARGET: cuda12
+        run: nimble test -y

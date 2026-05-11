@@ -1,0 +1,67 @@
+nimcache/
+nimblecache/
+htmldocs/
+__pycache__/
+*.pyc
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+!*.code-workspace
+
+# Built Visual Studio Code Extensions
+*.vsix
+
+# Compiled Nim executables built beside sources.
+# Keep source/config/docs versionable, including tests in subdirectories.
+/examples/**
+!/examples/**/
+!/examples/**/*.nim
+!/examples/**/*.nims
+!/examples/**/*.md
+/examples/**/*.exe
+/tests/**
+!/tests/**/
+!/tests/**/*.nim
+!/tests/**/*.nims
+!/tests/**/*.md
+/tests/**/*.exe
+/tools/**
+!/tools/**/
+!/tools/**/*.nim
+!/tools/**/*.nims
+!/tools/**/*.md
+/tools/**/*.exe
+
+# Compiled Nim executables accidentally built beside library modules
+/src/rew.out
+/src/rew/data/graph_data
+/src/rew/data/graph_datasets
+/src/rew/nn/edge_conv
+/src/rew/nn/gat_conv
+/src/rew/nn/gcn_conv
+/src/rew/nn/gin_conv
+/src/rew/nn/global_pool
+/src/rew/nn/graph_conv
+/src/rew/nn/graph_util
+/src/rew/nn/sage_conv
+/src/rew/ops/gather
+/src/rew/ops/segment
+
+# Benchmark build artifacts
+/benchmarks/rew_mnist_bench
+/benchmarks/rew_mnist_bench.exe
+
+graphify-out/
+artifacts/
+tf_logs/
+.claude/
+.dirac-symbol-index/
+.kilo/
+.serena/
+.graphify*
+scratch/
