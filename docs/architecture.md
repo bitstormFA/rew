@@ -9,6 +9,11 @@ truth.
 Version 0.2.0. No external Nim dependencies. PJRT plugins are loaded via
 `dlopen`; no MLIR/LLVM C++ in the build.
 
+The high-level API contract lives in
+[docs/high-level-api.md](high-level-api.md). It is the source of truth for the
+`Runtime`/`TrainState`/`Param`/`Buffer`/typed-step language used by public
+training APIs.
+
 ## Goals
 
 - **One IR, one autodiff, two front-ends.** Eager and `jit` both emit the same
@@ -18,6 +23,9 @@ Version 0.2.0. No external Nim dependencies. PJRT plugins are loaded via
   cross-device transfers, no global mutable state in user-visible APIs.
 - **Backend-agnostic at runtime.** PJRT plugins are shared libraries resolved
   via a pinned manifest, lazy-fetched on first use, and verified with SHA-256.
+- **Coherent high-level language.** User-facing training APIs are value state
+  plus typed steps: `Runtime`, `TrainState`, `Param`, `Buffer`, `StepResult`,
+  `Dataset`, and `Trainer` compose through pytrees.
 - **Functional `nn`.** Layers and optimizers are plain value `object` types —
   no `Module` base class, no `ref object` under `nn/` or `optim/`.
 
@@ -56,16 +64,22 @@ Version 0.2.0. No external Nim dependencies. PJRT plugins are loaded via
    `bsDonated` and reuse raises `BufferDonatedError`. Host transfers explicit
    only. Refcounted aliasing, no implicit copy.
 
-8. **nn API.** Functional layers as plain value `object` types built by
-   `initLinear(...)`-style constructors. `proc forward(layer, …)` is canonical.
-   Generic pytree (`treeFlatten`/`treeUnflatten` via `fieldPairs`) drives
-   optimizer, `grad`, serialization, device transfer. Explicit splittable PRNG
-   (`Key`, `split`, `foldIn`). Functional optimizers. No `Module` base class.
+8. **High-level state.** Functional layers as plain value `object` types built
+   by `initLinear(...)`-style constructors. `proc forward(layer, ...)` is
+   canonical. `Param[Tensor]` marks trainable leaves, `Buffer[Tensor]` marks
+   non-trainable state, and `TrainState`/`Runtime`/`StepResult` carry training
+   as value state plus typed steps. Generic pytree
+   (`treeFlatten`/`treeUnflatten` via `fieldPairs`) drives optimizer, `grad`,
+   serialization, device transfer, donation, freezing, and checkpoints.
+   Explicit splittable PRNG (`Key`, `split`, `foldIn`). Optimizers are
+   composable gradient transforms. No `Module` base class.
 
-9. **Layout & build.** `nimble` package `rew`, umbrella `src/rew.nim`,
-   internals under `src/rew/<layer>/...`. StableHLO op names follow pinned
-   release tags. Four architectural lints under `nimble lint` (layer imports,
-   VJP coverage, OpenXLA coverage, no-ref-in-nn).
+9. **Layout, build, and public tiers.** `nimble` package `rew`, user-level
+   umbrella `src/rew.nim`, compiler tier `src/rew/xla.nim`, extension tier
+   `src/rew/dev.nim`, internals under `src/rew/<layer>/...`. StableHLO op
+   names follow pinned release tags. Architectural lints under `nimble lint`
+   cover layer imports, VJP coverage, OpenXLA coverage, no-ref-in-nn, and the
+   coherent high-level API.
 
 10. **Agent instructions.** Per-layer `.github/instructions/*.instructions.md`
     with `applyTo:` globs; repo-wide `.github/copilot-instructions.md`; mirror
@@ -87,12 +101,15 @@ Version 0.2.0. No external Nim dependencies. PJRT plugins are loaded via
 | 8 | `src/rew/pytree.nim` | Generic flatten/unflatten via `fieldPairs`. No registration step. |
 | 9 | `src/rew/nn/`, `src/rew/optim/`, `src/rew/rng.nim`, `src/rew/serialize.nim` | Functional layers, activations, losses, optimizers, learning rate schedulers, splittable PRNG (Threefry-2x32), NumPy `.npy` I/O. |
 | 10 | `src/rew/data/` | Host-side data pipeline: lazy `DatasetFn[T]`, shuffle, batch, map, npy sources. |
-| — | `src/rew/train/` | Two-tier training API: `Workbench` (user owns the loop) and `Trainer` (framework owns the loop), with callbacks, hooks, data pipe, optimizer config, checkpoint/earlystop/progress/logmonitor. |
+| — | `src/rew/train/` | Coherent high-level training API: `Runtime`, `TrainState`, typed `compileTrainStep`, `StepResult`, `Trainer`, callbacks, hooks, data splits, checkpoint/earlystop/progress/logmonitor. |
 | — | `src/rew/value.nim` | General OpenXLA value model: tokens, tuples, futures, resources, dynamic dimensions, quantized/complex/FP8 element types. |
 | — | `src/rew/openxla/` | OpenXLA tool wrappers, custom-call registry, Tokamax kernel build metadata, pinned XLA/StableHLO/Shardy revisions. |
 
-The umbrella module `src/rew.nim` is the **only** public surface. Everything
-under `src/rew/*` is internal and may change freely.
+The public surface is tiered: `import rew` for high-level user code,
+`import rew/xla` for raw compiler and lowering work, and `import rew/dev` for
+extension and plugin internals. The high-level tier follows
+[docs/high-level-api.md](high-level-api.md). Everything else under
+`src/rew/*` is internal and may change freely.
 
 ## Build phases
 
@@ -110,7 +127,7 @@ under `src/rew/*` is internal and may change freely.
 | 9 | Bytecode coverage, CUDA/ROCm/TPU smoke tests | in progress |
 | 10 | Data pipeline (DatasetFn, lazy transforms, batching) | done |
 | 11 | CNN ops (conv2d, maxPool2d, Conv2d layer) | done |
-| 12 | Training module (Workbench + Trainer + callbacks) | done |
+| 12 | Training module (Runtime/TrainState + Trainer + callbacks) | done |
 | 13 | PJRT binaries rework (multi-plugin registry, manifest, Target enum) | done |
 
 ## Op coverage
@@ -197,16 +214,18 @@ Both paths use the same `ShBuilder` ops and the same VJP registry.
 ### Adding a new optimizer
 
 1. Create the file under `src/rew/optim/`. Must be a value `object` holding
-   parameter state (no `ref object`).
+   hyperparameters and transform configuration (no `ref object`).
 
-2. Provide an `init*` constructor that stores hyperparameters as value fields.
-   Learning rates that participate in traced updates should be 0-d `Tensor`s.
+2. Expose it as a composable gradient transform:
+   `initState(opt, params)` and `update(opt, grads, state, params)`.
+   Learning rates or schedules that participate in traced updates should be
+   represented as tensor leaves or typed schedule transforms.
 
-3. Provide a functional `step` that returns updated parameters, and updated
-   optimizer state when needed: `proc step*(opt; params; grads; state): (P, S)`.
-   Stateless optimizers may return just the updated params.
+3. Make it compose with `chain`, `partition`, `freeze`, `clipByGlobalNorm`, and
+   `scaleBySchedule` instead of adding cases to a closed optimizer enum.
 
-4. Re-export from `src/rew/optim.nim`.
+4. Re-export from `src/rew/optim.nim` and update typed-step examples/tests if
+   the public optimizer vocabulary changes.
 
 ### Adding a new transform
 

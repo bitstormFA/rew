@@ -4,8 +4,9 @@ Mirror of [.github/copilot-instructions.md](.github/copilot-instructions.md)
 for non-Copilot agents (Claude Code, Cursor, Aider, etc.).
 
 For the full architecture and the ten invariants, see
-[docs/architecture.md](docs/architecture.md). For per-layer rules, see the
-files under [.github/instructions/](.github/instructions/) — open the one
+[docs/architecture.md](docs/architecture.md). For the high-level API contract,
+see [docs/high-level-api.md](docs/high-level-api.md). For per-layer rules, see
+the files under [.github/instructions/](.github/instructions/) — open the one
 matching the layer you are about to edit before making changes.
 
 ## Quick rules
@@ -20,7 +21,11 @@ matching the layer you are about to edit before making changes.
   (for the `Target` enum) but not the reverse.
 - No macro `jit`, no `requires_grad` flag, no implicit host or cross-device
   transfers.
-- Public API lives in `src/rew.nim` re-exports only.
+- Public API is tiered: `import rew` for high-level user code, `import rew/xla`
+  for raw compiler/lowering/JIT, and `import rew/dev` for extension internals.
+- High-level API changes must follow `docs/high-level-api.md`; new high-level
+  examples should use `TrainState` and `compileTrainStep`, not raw `JitFn`
+  plumbing.
 - `Device` uses a closed `Target` enum (`tCpu`, `tCuda12`, `tCuda13`,
   `tRocm`, `tMetal`, `tTpu`), not strings.
 - Environment variables use the `REW_` prefix (`REW_TARGET`, `REW_CACHE_DIR`,

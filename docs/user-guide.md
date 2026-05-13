@@ -28,11 +28,22 @@ Key design decisions:
 - **Functional from the ground up.** Layers and optimizers are plain value
   `object` types. There is no `Module` base class, no mutable global state.
   PRNG keys are explicit and splittable.
+- **Coherent high-level API.** Public training code is converging on the
+  value-state plus typed-step language in
+  [docs/high-level-api.md](high-level-api.md): `Runtime`, `TrainState`,
+  `Param`, `Buffer`, `StepResult`, `Dataset`, optimizer transforms, and
+  `Trainer` all compose through pytrees.
 - **Backend-agnostic.** PJRT plugins (CPU, CUDA 12/13, ROCm, TPU) are shared
   libraries resolved via a pinned manifest, lazy-fetched on first use, and
   verified with SHA-256. Plugins for multiple architectures can be loaded
   concurrently.
 - **No external Nim dependencies.** Everything runs on Nim's stdlib.
+
+> **High-level API status.** This guide still contains historical examples that
+> mention `Workbench`, `DataPipe`, closed optimizer configs, or raw `JitFn`
+> training loops. During the unreleased redesign, treat
+> [docs/high-level-api.md](high-level-api.md) as the authoritative contract and
+> update older guide sections toward that vocabulary when touching them.
 
 ---
 

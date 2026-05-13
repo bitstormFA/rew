@@ -2,7 +2,9 @@
 
 Rechenwerk is a Nim wrapper around OpenXLA/PJRT that delivers a PyTorch-feel
 eager API and a JAX-style `jit` that share one StableHLO emitter and one vjp
-registry. The full design lives in [docs/architecture.md](../docs/architecture.md).
+registry. The full design lives in
+[docs/architecture.md](../docs/architecture.md), and the high-level API
+contract lives in [docs/high-level-api.md](../docs/high-level-api.md).
 
 ## The ten architectural invariants — DO NOT violate
 
@@ -27,11 +29,14 @@ registry. The full design lives in [docs/architecture.md](../docs/architecture.m
 7. **Async-by-default execution; sync only on observation.** Donation via
    explicit `jit(fn, donateArgs = …)`; donated reuse raises
    `BufferDonatedError`. Host transfers are explicit only.
-8. **nn layers and optimizers are pure functional value types.** No `Module`
-   base class. No `ref object` under `src/rew/nn/` or `src/rew/optim/`. PRNG
-   is explicit and threaded.
-9. **Public API surface = `src/rew.nim` re-exports only.** Internal modules
-   under `src/rew/<layer>/...` may change freely.
+8. **High-level API = value state + typed steps.** `Runtime`, `TrainState`,
+   `Param`, `Buffer`, `StepResult`, datasets, optimizers, metrics, and
+   checkpoints compose through pytrees. No `Module` base class. No `ref object`
+   under `src/rew/nn/` or `src/rew/optim/`. PRNG is explicit and threaded.
+9. **Public API surface is tiered.** `import rew` is the high-level surface;
+   `import rew/xla` is raw compiler/lowering/JIT; `import rew/dev` is
+   extension and plugin internals. Other modules under `src/rew/<layer>/...`
+   may change freely.
 10. **Edit only the layer you came for.** If you find yourself modifying a
     different layer, stop and ask. Each layer has a per-file
     `.instructions.md` that auto-attaches when you touch it.
@@ -83,6 +88,11 @@ ownership-hooks, code-organization, debugging, doc-comments).
 - **Public ops** declare `{.rewOp.}` so the vjp-coverage lint can find them.
 - **Doc comments** on every exported symbol (per
   [`nim-doc-comments`](../.agents/skills/nim-doc-comments/SKILL.md)).
+- **High-level API changes** must follow
+  [docs/high-level-api.md](../docs/high-level-api.md), update it when the
+  language changes, and keep `tools/check_high_level_api.nim` green.
+- **No raw `JitFn` plumbing** in new high-level examples. Use `TrainState`,
+  `compileTrainStep`, and typed loss or custom `trainStep` functions.
 - **No new `ref object`** outside the explicitly approved places (currently
   only `BufferHandle` in `src/rew/buffer.nim`).
 - **No global mutable state** in user-visible APIs. Process-wide caches
