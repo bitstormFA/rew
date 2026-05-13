@@ -518,17 +518,23 @@ proc realDynamicSlice*(a, startIndices, limitIndices, strides: Tensor;
 
 # ---- shape-manipulation composites ---------------------------------------
 
+proc normalizeAxis(a: Tensor; dim: int; opName: string): int =
+  let rank = a.shape.len
+  result = if dim < 0: rank + dim else: dim
+  if result < 0 or result >= rank:
+    raise newException(TensorError,
+      opName & ": dim " & $dim & " out of range for rank " & $rank)
+
 proc squeeze*(a: Tensor; dim: int): Tensor =
   ## Remove a size-1 dimension at `dim`. The dimension must have size 1.
-  if dim < 0 or dim >= a.shape.len:
+  let pos = normalizeAxis(a, dim, "squeeze")
+  if a.shape[pos] != 1:
     raise newException(TensorError,
-      "squeeze: dim " & $dim & " out of range for rank " & $a.shape.len)
-  if a.shape[dim] != 1:
-    raise newException(TensorError,
-      "squeeze: dim " & $dim & " has size " & $a.shape[dim] & ", expected 1")
+      "squeeze: dim " & $dim & " has size " & $a.shape[pos] &
+        ", expected 1")
   var newShape: seq[int] = @[]
   for i, s in a.shape:
-    if i != dim: newShape.add s
+    if i != pos: newShape.add s
   reshape(a, newShape)
 
 proc squeeze*(a: Tensor): Tensor =
@@ -588,12 +594,13 @@ proc stack*(tensors: openArray[Tensor]; dim = 0): Tensor =
 
 proc split*(a: Tensor; sizes: openArray[int]; dim = 0): seq[Tensor] =
   ## Split `a` along `dim` into pieces with the given `sizes`.
-  let pos = if dim < 0: a.shape.len + dim else: dim
-  if pos < 0 or pos >= a.shape.len:
-    raise newException(TensorError,
-      "split: dim " & $dim & " out of range for rank " & $a.shape.len)
+  let pos = normalizeAxis(a, dim, "split")
   var total = 0
-  for s in sizes: total += s
+  for i, s in sizes:
+    if s < 0:
+      raise newException(TensorError,
+        "split: size #" & $i & " must be non-negative, got " & $s)
+    total += s
   if total != a.shape[pos]:
     raise newException(TensorError,
       "split: sum of sizes " & $total &
@@ -616,13 +623,14 @@ proc split*(a: Tensor; sizes: openArray[int]; dim = 0): seq[Tensor] =
 proc chunk*(a: Tensor; chunks: int; dim = 0): seq[Tensor] =
   ## Split `a` into `chunks` pieces along `dim`. All pieces have the same
   ## size except possibly the last.
-  let pos = if dim < 0: a.shape.len + dim else: dim
-  if pos < 0 or pos >= a.shape.len:
-    raise newException(TensorError,
-      "chunk: dim " & $dim & " out of range for rank " & $a.shape.len)
+  let pos = normalizeAxis(a, dim, "chunk")
   if chunks <= 0:
     raise newException(TensorError, "chunk: chunks must be > 0")
   let dimSize = a.shape[pos]
+  if chunks > dimSize:
+    raise newException(TensorError,
+      "chunk: chunks " & $chunks &
+        " cannot exceed dimension size " & $dimSize)
   var sizes: seq[int] = @[]
   let baseSize = dimSize div chunks
   let remainder = dimSize mod chunks
@@ -632,7 +640,7 @@ proc chunk*(a: Tensor; chunks: int; dim = 0): seq[Tensor] =
 
 proc unbind*(a: Tensor; dim = 0): seq[Tensor] =
   ## Unbind `a` along `dim` into one slice per index.
-  let pos = if dim < 0: a.shape.len + dim else: dim
+  let pos = normalizeAxis(a, dim, "unbind")
   var sizes = newSeq[int](a.shape[pos])
   for i in 0 ..< a.shape[pos]: sizes[i] = 1
   split(a, sizes, dim)
@@ -645,7 +653,7 @@ proc roll*(a: Tensor; shifts: openArray[int]; dims: openArray[int]): Tensor =
       "roll: shifts and dims must have the same length")
   result = a
   for k in 0 ..< shifts.len:
-    let d = if dims[k] < 0: a.shape.len + dims[k] else: dims[k]
+    let d = normalizeAxis(a, dims[k], "roll")
     let size = a.shape[d]
     if size <= 1: continue
     let s = shifts[k] mod size
@@ -690,19 +698,21 @@ proc rot90*(a: Tensor; k = 1; dims: array[2, int] = [0, 1]): Tensor =
   if a.shape.len < 2:
     raise newException(TensorError,
       "rot90: operand must have rank >= 2, got " & $a.shape.len)
-  if dims[0] == dims[1]:
+  let ax0 = normalizeAxis(a, dims[0], "rot90")
+  let ax1 = normalizeAxis(a, dims[1], "rot90")
+  if ax0 == ax1:
     raise newException(TensorError, "rot90: dims must be distinct")
-  let m = k mod 4
+  let m = ((k mod 4) + 4) mod 4
   if m == 0:
     return a
   result = a
-  for _ in 1 .. m:
+  for _ in 0 ..< m:
     var perm = newSeq[int](result.shape.len)
     for i in 0 ..< result.shape.len: perm[i] = i
-    perm[dims[0]] = dims[1]
-    perm[dims[1]] = dims[0]
+    perm[ax0] = ax1
+    perm[ax1] = ax0
     result = transpose(result, perm)
-    result = flip(result, dims[0])
+    result = flip(result, ax0)
 
 proc permute*(a: Tensor; dims: openArray[int]): Tensor =
   ## Permute the axes of `a`. Alias for `transpose` matching the PyTorch

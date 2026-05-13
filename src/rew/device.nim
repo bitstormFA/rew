@@ -24,33 +24,36 @@ type
   DeviceError* = object of CatchableError
     ## Raised by cross-device ops and by failed default-device resolution.
 
+func initDevice*(target: Target; ordinal: int = 0): Device =
+  ## Generic constructor from a `Target` enum value.
+  if ordinal < 0:
+    raise newException(DeviceError,
+      "initDevice: ordinal must be non-negative, got " & $ordinal)
+  Device(target: target, ordinal: ordinal)
+
 func cpu*(ordinal: int = 0): Device =
   ## Constructs a CPU device.
-  Device(target: tCpu, ordinal: ordinal)
+  initDevice(tCpu, ordinal)
 
 func cuda12*(ordinal: int = 0): Device =
   ## Constructs a CUDA 12 device.
-  Device(target: tCuda12, ordinal: ordinal)
+  initDevice(tCuda12, ordinal)
 
 func cuda13*(ordinal: int = 0): Device =
   ## Constructs a CUDA 13 device.
-  Device(target: tCuda13, ordinal: ordinal)
+  initDevice(tCuda13, ordinal)
 
 func rocm*(ordinal: int = 0): Device =
   ## Constructs a ROCm device.
-  Device(target: tRocm, ordinal: ordinal)
+  initDevice(tRocm, ordinal)
 
 func metal*(ordinal: int = 0): Device =
   ## Constructs a Metal device.
-  Device(target: tMetal, ordinal: ordinal)
+  initDevice(tMetal, ordinal)
 
 func tpu*(ordinal: int = 0): Device =
   ## Constructs a TPU device.
-  Device(target: tTpu, ordinal: ordinal)
-
-func initDevice*(target: Target; ordinal: int = 0): Device =
-  ## Generic constructor from a `Target` enum value.
-  Device(target: target, ordinal: ordinal)
+  initDevice(tTpu, ordinal)
 
 func `==`*(a, b: Device): bool =
   ## Structural equality on (target, ordinal).

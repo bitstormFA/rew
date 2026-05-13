@@ -112,6 +112,14 @@ block device_parse_errors:
       raised = true
     doAssert raised, "expected DeviceError for " & bad
 
+block device_negative_ordinals_raise:
+  doAssertRaises(DeviceError):
+    discard cpu(-1)
+  doAssertRaises(DeviceError):
+    discard initDevice(tCpu, -2)
+  doAssertRaises(DeviceError):
+    discard parseDevice("cpu:-1")
+
 block require_same_device_ok:
   let d = cpu(0)
   requireSameDevice(d, d, "add")
@@ -171,6 +179,14 @@ block malformed_meshes_and_specs_raise:
   doAssertRaises(ValueError):
     validatePartitionSpec(mesh, initPartitionSpec(["x", "x"]), 2)
 
+block tensor_constructor_edges_raise:
+  doAssertRaises(TensorModeError):
+    discard initTraceTensor(ShValueId(0), dtFloat32, [2], cpu(0))
+  doAssertRaises(TensorError):
+    discard initTraceTensor(ShValueId(41), dtFloat32, [-1], cpu(0))
+  doAssertRaises(TensorError):
+    discard initEagerTensor(nil.BufferHandle, dtFloat32, [1], cpu(0))
+
 block tensor_annotation_is_metadata_only:
   let mesh = initMesh("m", ["x"], [2])
   let spec = initPartitionSpec(["x"])
@@ -195,6 +211,19 @@ block manual_sharding:
   let manual = t.manualShard(mesh, spec)
   doAssert manual.sharding.isManual
   doAssert $manual.sharding == "manual(manual_mesh[x=2], (x))"
+
+block shape_composite_edge_errors:
+  let t = initTraceTensor(ShValueId(3), dtFloat32, [2, 3], cpu(0))
+  doAssertRaises(TensorError):
+    discard split(t, [1, -1, 3], 1)
+  doAssertRaises(TensorError):
+    discard chunk(t, 4, 0)
+  doAssertRaises(TensorError):
+    discard unbind(t, 2)
+  doAssertRaises(TensorError):
+    discard roll(t, [1], [3])
+  doAssertRaises(TensorError):
+    discard rot90(t, dims = [0, 0])
 
 block shardy_rendering:
   let mesh = initMesh("mesh", ["x", "y"], [2, 2],
@@ -310,6 +339,16 @@ block use_after_donate_raises:
     doAssert "matmul" in e.msg
     doAssert "jit:trainStep" in e.msg
   doAssert raised
+
+block nil_buffer_guards_are_safe:
+  let h = nil.BufferHandle
+  doAssert not h.isLive
+  doAssert not h.isDonated
+  doAssert h.bufferCount == 0
+  doAssertRaises(ValueError):
+    requireLive(h, "nilGuard")
+  doAssertRaises(ValueError):
+    markDonated(h, "nilGuard")
 
 block live_buffer_passes_guard:
   let h = newBufferHandle(tCpu,

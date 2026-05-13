@@ -83,3 +83,14 @@ block size_mismatch_in_init_npy_array_is_rejected:
   except NpyError:
     raised = true
   doAssert raised
+
+block negative_shape_in_init_npy_array_is_rejected:
+  var bytes: seq[byte] = @[]
+  doAssertRaises(NpyError):
+    discard initNpyArray(dtFloat32, [-1], bytes)
+
+block negative_shape_in_save_npy_is_rejected:
+  let arr = NpyArray(dtype: dtFloat32, shape: @[-1], data: @[])
+  let s = newStringStream()
+  doAssertRaises(NpyError):
+    saveNpy(s, arr)

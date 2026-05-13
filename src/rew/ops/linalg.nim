@@ -28,17 +28,88 @@ proc joinInts(xs: openArray[int]): string =
     result.add $x
   result.add ']'
 
+proc validateShape(opName: string; shape: openArray[int]) =
+  for i, dim in shape:
+    if dim < 0:
+      raise newException(TensorError,
+        opName & ": shape dimension #" & $i &
+          " must be non-negative, got " & $dim)
+
+proc normalizeDim(opName: string; rank, dim: int): int =
+  result = if dim < 0: rank + dim else: dim
+  if result < 0 or result >= rank:
+    raise newException(TensorError,
+      opName & ": dim " & $dim & " out of range for rank " & $rank)
+
+proc collectDims(opName, argName: string; rank: int;
+    dims: openArray[int]; used: var seq[bool]): seq[int] =
+  for raw in dims:
+    if raw < 0 or raw >= rank:
+      raise newException(TensorError,
+        opName & ": " & argName & " dim " & $raw &
+          " out of range for rank " & $rank)
+    if used[raw]:
+      raise newException(TensorError,
+        opName & ": " & argName & " dim " & $raw & " is repeated")
+    used[raw] = true
+    result.add raw
+
+proc validateBroadcast(opName: string; operandShape, outputShape,
+    broadcastDimensions: openArray[int]) =
+  if broadcastDimensions.len != operandShape.len:
+    raise newException(TensorError,
+      opName & ": broadcastDimensions length " &
+        $broadcastDimensions.len & " does not match operand rank " &
+        $operandShape.len)
+  validateShape(opName, outputShape)
+  var seen = newSeq[bool](outputShape.len)
+  for i, outDim in broadcastDimensions:
+    if outDim < 0 or outDim >= outputShape.len:
+      raise newException(TensorError,
+        opName & ": broadcast dimension " & $outDim &
+          " out of range for result rank " & $outputShape.len)
+    if seen[outDim]:
+      raise newException(TensorError,
+        opName & ": broadcast dimension " & $outDim & " is repeated")
+    seen[outDim] = true
+    let inSize = operandShape[i]
+    let outSize = outputShape[outDim]
+    if inSize != 1 and inSize != outSize:
+      raise newException(TensorError,
+        opName & ": operand dim " & $i & " has size " & $inSize &
+          " but result dim " & $outDim & " has size " & $outSize)
+
 proc dotGeneralOutputShape(lShape, rShape: openArray[int];
     lhsBatching, rhsBatching, lhsContracting, rhsContracting: openArray[int]):
     seq[int] =
+  if lhsBatching.len != rhsBatching.len:
+    raise newException(TensorError,
+      "dotGeneral: lhs/rhs batching dim count mismatch")
+  if lhsContracting.len != rhsContracting.len:
+    raise newException(TensorError,
+      "dotGeneral: lhs/rhs contracting dim count mismatch")
   var lhsUsed = newSeq[bool](lShape.len)
   var rhsUsed = newSeq[bool](rShape.len)
-  for d in lhsBatching: lhsUsed[d] = true
-  for d in lhsContracting: lhsUsed[d] = true
-  for d in rhsBatching: rhsUsed[d] = true
-  for d in rhsContracting: rhsUsed[d] = true
+  let lhsBatch = collectDims("dotGeneral", "lhs batching", lShape.len,
+    lhsBatching, lhsUsed)
+  let lhsContract = collectDims("dotGeneral", "lhs contracting", lShape.len,
+    lhsContracting, lhsUsed)
+  let rhsBatch = collectDims("dotGeneral", "rhs batching", rShape.len,
+    rhsBatching, rhsUsed)
+  let rhsContract = collectDims("dotGeneral", "rhs contracting", rShape.len,
+    rhsContracting, rhsUsed)
+  for i in 0 ..< lhsBatch.len:
+    if lShape[lhsBatch[i]] != rShape[rhsBatch[i]]:
+      raise newException(TensorError,
+        "dotGeneral: batching dim size mismatch (" &
+          $lShape[lhsBatch[i]] & " vs " & $rShape[rhsBatch[i]] & ")")
+  for i in 0 ..< lhsContract.len:
+    if lShape[lhsContract[i]] != rShape[rhsContract[i]]:
+      raise newException(TensorError,
+        "dotGeneral: contracting dim size mismatch (" &
+          $lShape[lhsContract[i]] & " vs " & $rShape[rhsContract[i]] & ")")
   result = @[]
-  for d in lhsBatching: result.add lShape[d]
+  for d in lhsBatch: result.add lShape[d]
   for i in 0 ..< lShape.len:
     if not lhsUsed[i]: result.add lShape[i]
   for i in 0 ..< rShape.len:
@@ -189,11 +260,7 @@ proc broadcastTo*(t: Tensor; outputShape: openArray[int];
   ## Broadcast `t` to `outputShape`. Each operand axis `i` maps to
   ## output axis `broadcastDimensions[i]`. Operand axes must be size 1
   ## or already match.
-  if broadcastDimensions.len != t.shape.len:
-    raise newException(TensorError,
-      "broadcastTo: broadcastDimensions length " &
-        $broadcastDimensions.len & " does not match operand rank " &
-        $t.shape.len)
+  validateBroadcast("broadcastTo", t.shape, outputShape, broadcastDimensions)
   case currentMode()
   of dmTrace:
     requireTrace(t, "broadcastTo")
@@ -230,6 +297,8 @@ proc dynamicBroadcastInDim*(t, outputDimensions: Tensor;
     raise newException(TensorError,
       "dynamicBroadcastInDim: outputDimensions must be an integer vector " &
         "of length " & $resultShape.len)
+  validateBroadcast("dynamicBroadcastInDim", t.shape, resultShape,
+    broadcastDimensions)
   case currentMode()
   of dmTrace:
     requireTrace(t, "dynamicBroadcastInDim")
@@ -399,6 +468,13 @@ proc tile*(a: Tensor; multiples: openArray[int]): Tensor =
     raise newException(TensorError,
       "tile: multiples length " & $multiples.len &
         " must match rank " & $a.shape.len)
+  for i, multiple in multiples:
+    if multiple <= 0:
+      raise newException(TensorError,
+        "tile: multiple #" & $i & " must be positive, got " & $multiple)
+    if a.shape[i] != 0 and multiple > high(int) div a.shape[i]:
+      raise newException(TensorError,
+        "tile: output dimension #" & $i & " overflows int")
   var intermediate = a
   for i in 0 ..< a.shape.len:
     if multiples[i] > 1:
@@ -418,7 +494,10 @@ proc tile*(a: Tensor; multiples: openArray[int]): Tensor =
 
 proc repeat*(a: Tensor; repeats: int; dim: int): Tensor =
   ## Repeat elements of `a` along `dim` `repeats` times.
-  let pos = if dim < 0: a.shape.len + dim else: dim
+  let pos = normalizeDim("repeat", a.shape.len, dim)
+  if repeats <= 0:
+    raise newException(TensorError,
+      "repeat: repeats must be positive, got " & $repeats)
   var multiples = newSeq[int](a.shape.len)
   for i in 0 ..< a.shape.len: multiples[i] = 1
   multiples[pos] = repeats
@@ -619,6 +698,10 @@ proc kron*(a, b: Tensor): Tensor =
   ## by every element of `b`.
   let aRank = a.shape.len
   let bRank = b.shape.len
+  if aRank != bRank:
+    raise newException(TensorError,
+      "kron: operands must have the same rank, got " & $aRank &
+        " and " & $bRank)
   # Interleave: for each dim of a, broadcast b's matching dim after it.
   var intermed = a
   for i in 0 ..< aRank:
@@ -738,8 +821,9 @@ proc fftshift*(a: Tensor; dims: openArray[int] = []): Tensor =
     for i in 0 ..< a.shape.len: shiftDims.add i
   var t = a
   for d in shiftDims:
-    let halfLen = t.shape[d] div 2
-    t = roll(t, halfLen, d)
+    let pos = normalizeDim("fftshift", t.shape.len, d)
+    let halfLen = t.shape[pos] div 2
+    t = roll(t, halfLen, pos)
   t
 
 proc ifftshift*(a: Tensor; dims: openArray[int] = []): Tensor =
@@ -749,8 +833,9 @@ proc ifftshift*(a: Tensor; dims: openArray[int] = []): Tensor =
     for i in 0 ..< a.shape.len: shiftDims.add i
   var t = a
   for d in shiftDims:
-    let halfLen = (t.shape[d] + 1) div 2
-    t = roll(t, halfLen, d)
+    let pos = normalizeDim("ifftshift", t.shape.len, d)
+    let halfLen = (t.shape[pos] + 1) div 2
+    t = roll(t, halfLen, pos)
   t
 
 proc fftn*(a: Tensor): Tensor =
@@ -773,8 +858,18 @@ proc rfftn*(a: Tensor): Tensor =
 
 proc irfftn*(a: Tensor; outputSamples: openArray[int] = []): Tensor =
   ## N-D complex-to-real inverse FFT.
+  if a.shape.len == 0:
+    raise newException(TensorError,
+      "irfftn: operand must have rank >= 1")
   var dims: seq[int]
   if outputSamples.len > 0:
+    if outputSamples.len != a.shape.len:
+      raise newException(TensorError,
+        "irfftn: outputSamples length must match operand rank")
+    for i, n in outputSamples:
+      if n <= 0:
+        raise newException(TensorError,
+          "irfftn: outputSamples #" & $i & " must be positive")
     dims = @outputSamples
   else:
     for d in a.shape: dims.add d
@@ -819,6 +914,10 @@ proc broadcastArrays*(tensors: varargs[Tensor]): seq[Tensor] =
 proc fftfreq*(n: int; d: float32 = 1.0'f32): seq[float32] =
   ## Return the discrete Fourier transform sample frequencies for
   ## a signal of length `n` with sample spacing `d`.
+  if n <= 0:
+    raise newException(TensorError, "fftfreq: n must be positive")
+  if d == 0'f32:
+    raise newException(TensorError, "fftfreq: d must be non-zero")
   result = newSeq[float32](n)
   let val = 1.0'f32 / (float32(n) * d)
   let half = (n + 1) div 2
@@ -830,6 +929,10 @@ proc fftfreq*(n: int; d: float32 = 1.0'f32): seq[float32] =
 
 proc rfftfreq*(n: int; d: float32 = 1.0'f32): seq[float32] =
   ## Return the sample frequencies for `rfft` with `n` input points.
+  if n <= 0:
+    raise newException(TensorError, "rfftfreq: n must be positive")
+  if d == 0'f32:
+    raise newException(TensorError, "rfftfreq: d must be non-zero")
   result = newSeq[float32](n div 2 + 1)
   let val = 1.0'f32 / (float32(n) * d)
   for i in 0 ..< result.len:

@@ -142,6 +142,29 @@ block trace_bool_reductions:
   doAssert "stablehlo.and" in text
   doAssert "stablehlo.or" in text
 
+block trace_reduction_composite_dim_normalization:
+  withTrace ctx, "main", TestDevice:
+    let inputs = ctx.traceInputs(@[dtFloat32], @[@[2, 3]])
+    let lse = logSumExp(inputs[0], [-1])
+    let v = variance(inputs[0], [-1])
+    doAssert lse.shape == @[2]
+    doAssert v.shape == @[2]
+    ctx.traceReturn([lse, v])
+  let m = ctx.builder.build()
+  verify(m)
+
+block trace_reduction_composite_api_errors:
+  withTrace ctx, "main", TestDevice:
+    let inputs = ctx.traceInputs(@[dtFloat32], @[@[2, 3]])
+    let vector = initTraceTensor(ShValueId(99), dtFloat32, [3], TestDevice)
+    doAssertRaises(TensorError):
+      discard cumsum(inputs[0], 2)
+    doAssertRaises(TensorError):
+      discard norm(inputs[0], p = 0'f32)
+    doAssertRaises(TensorError):
+      discard cov(vector)
+    ctx.traceReturn([inputs[0]])
+
 block trace_reduce_window:
   withTrace ctx, "main", TestDevice:
     let inputs = ctx.traceInputs(@[dtFloat32], @[@[1, 4, 4, 1]])

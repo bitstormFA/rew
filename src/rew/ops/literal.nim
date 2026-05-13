@@ -13,10 +13,14 @@ from ../eager import transferToDevice
 
 proc shapeElementCount(shape: openArray[int]; opName: string): int =
   result = 1
-  for d in shape:
+  for i, d in shape:
     if d < 0:
       raise newException(TensorError,
-        opName & ": shape contains negative dimension " & $d)
+        opName & ": shape dimension #" & $i &
+          " must be non-negative, got " & $d)
+    if d != 0 and result > high(int) div d:
+      raise newException(TensorError,
+        opName & ": shape element count overflows int")
     result *= d
 
 proc shapeDims(shape: openArray[int]): seq[int64] =
@@ -27,6 +31,9 @@ proc shapeDims(shape: openArray[int]): seq[int64] =
 proc validateConstantBytes(dtype: DType; shape: openArray[int];
     dataLen: int; opName: string): int =
   let n = shapeElementCount(shape, opName)
+  if n != 0 and n > high(int) div dtype.byteSize:
+    raise newException(TensorError,
+      opName & ": byte count overflows int")
   result = n * dtype.byteSize
   if dataLen != result:
     raise newException(TensorError,

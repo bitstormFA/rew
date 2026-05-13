@@ -216,17 +216,31 @@ proc readNpyHeader(s: Stream): tuple[dtype: DType; shape: seq[int];
   result = (dtype: dt, shape: shape,
             headerLen: NpyMagic.len + 2 + 2 + headerLen)
 
-func elementCount(shape: openArray[int]): int =
+func elementCount(shape: openArray[int]; opName: string): int =
   result = 1
-  for d in shape: result *= d
+  for i, d in shape:
+    if d < 0:
+      raise newException(NpyError,
+        opName & ": shape dimension #" & $i &
+          " must be non-negative, got " & $d)
+    if d != 0 and result > high(int) div d:
+      raise newException(NpyError,
+        opName & ": shape element count overflows int")
+    result *= d
+
+func byteCount(dtype: DType; shape: openArray[int]; opName: string): int =
+  let n = elementCount(shape, opName)
+  if n != 0 and n > high(int) div dtype.byteSize:
+    raise newException(NpyError,
+      opName & ": byte count overflows int")
+  n * dtype.byteSize
 
 proc loadNpy*(s: Stream): NpyArray
     {.raises: [NpyError, IOError, OSError].} =
   ## Reads one `.npy` v1.0 array from `s`. The full data buffer is
   ## materialised in `result.data`.
   let (dt, shape, _) = readNpyHeader(s)
-  let n = elementCount(shape)
-  let bytes = n * dt.byteSize
+  let bytes = byteCount(dt, shape, "loadNpy")
   var data = newSeq[byte](bytes)
   if bytes > 0:
     let got = s.readData(addr data[0], bytes)
@@ -247,8 +261,8 @@ proc loadNpy*(path: string): NpyArray
 proc saveNpy*(s: Stream; arr: NpyArray)
     {.raises: [NpyError, IOError, OSError].} =
   ## Writes `arr` as a v1.0 `.npy` array to `s`.
-  let n = elementCount(arr.shape)
-  if arr.data.len != n * arr.dtype.byteSize:
+  let bytes = byteCount(arr.dtype, arr.shape, "saveNpy")
+  if arr.data.len != bytes:
     raise newException(NpyError,
       "saveNpy: data length " & $arr.data.len & " does not match shape/dtype")
   var shapeStr = "("
@@ -289,11 +303,11 @@ func initNpyArray*(dtype: DType; shape: openArray[int];
     data: sink seq[byte]): NpyArray =
   ## Builds an `NpyArray` from existing host bytes after validating the
   ## buffer size against `dtype.byteSize * prod(shape)`.
-  let n = elementCount(shape)
-  if data.len != n * dtype.byteSize:
+  let bytes = byteCount(dtype, shape, "initNpyArray")
+  if data.len != bytes:
     raise newException(NpyError,
       "initNpyArray: data length " & $data.len &
-        " does not match dtype/shape (" & $(n * dtype.byteSize) & ")")
+        " does not match dtype/shape (" & $bytes & ")")
   NpyArray(dtype: dtype, shape: @shape, data: data)
 
 # ---- Checkpoint helpers ---------------------------------------------------

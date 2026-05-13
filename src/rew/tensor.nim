@@ -51,11 +51,21 @@ type
       ## `InvalidShValueId` (sentinel 0) in eager mode; a valid SSA id in
       ## trace mode.
 
+func checkedElementCount(shape: openArray[int]; opName: string): int =
+  result = 1
+  for i, d in shape:
+    if d < 0:
+      raise newException(TensorError,
+        opName & ": shape dimension #" & $i &
+          " must be non-negative, got " & $d)
+    if d != 0 and result > high(int) div d:
+      raise newException(TensorError,
+        opName & ": shape element count overflows int")
+    result *= d
+
 func numElements*(t: Tensor): int =
   ## Product of the shape dimensions; 1 for a 0-d (scalar) tensor.
-  result = 1
-  for d in t.shape:
-    result *= d
+  checkedElementCount(t.shape, "numElements")
 
 func isEager*(t: Tensor): bool =
   ## True iff `t` is an eager-mode tensor (carries a live `BufferHandle`).
@@ -103,6 +113,11 @@ proc initTraceTensor*(id: ShValueId; dtype: DType; shape: openArray[int];
     device: Device; sharding: Sharding = initReplicated()): Tensor =
   ## Constructs a trace-mode tensor from a fresh SSA id. Called by the
   ## dispatcher after every op emission.
+  if id.int == 0:
+    raise newException(TensorModeError,
+      "initTraceTensor: trace tensor requires a non-zero SSA id")
+  discard checkedElementCount(shape, "initTraceTensor")
+  validateSharding(sharding, shape.len)
   Tensor(
     dtype: dtype,
     shape: @shape,
@@ -117,6 +132,11 @@ proc initEagerTensor*(buffer: BufferHandle; dtype: DType;
     sharding: Sharding = initReplicated()): Tensor =
   ## Constructs an eager-mode tensor wrapping an existing `BufferHandle`.
   ## The handle's refcount is bumped by the assignment.
+  if buffer.isNil:
+    raise newException(TensorError,
+      "initEagerTensor: buffer must not be nil")
+  discard checkedElementCount(shape, "initEagerTensor")
+  validateSharding(sharding, shape.len)
   Tensor(
     dtype: dtype,
     shape: @shape,

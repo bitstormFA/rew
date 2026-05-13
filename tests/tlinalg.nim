@@ -91,6 +91,16 @@ block trace_matmul_inner_dim_mismatch:
       discard matmul(inputs[0], inputs[1])
     ctx.traceReturn([inputs[0]])
 
+block trace_dot_general_api_validation:
+  withTrace ctx, "main", TestDevice:
+    let inputs = ctx.traceInputs(@[dtFloat32, dtFloat32],
+      @[@[2, 3], @[3, 4]])
+    doAssertRaises(TensorError):
+      discard dotGeneral(inputs[0], inputs[1], [0], [], [1], [0])
+    doAssertRaises(TensorError):
+      discard dotGeneral(inputs[0], inputs[1], [], [], [1, 1], [0, 0])
+    ctx.traceReturn([inputs[0]])
+
 block trace_broadcast_to:
   withTrace ctx, "main", TestDevice:
     let inputs = ctx.traceInputs(@[dtFloat32], @[@[3]])
@@ -100,6 +110,15 @@ block trace_broadcast_to:
   verify(m)
   let text = emitText(m)
   doAssert "stablehlo.broadcast_in_dim" in text
+
+block trace_broadcast_to_api_validation:
+  withTrace ctx, "main", TestDevice:
+    let inputs = ctx.traceInputs(@[dtFloat32], @[@[3]])
+    doAssertRaises(TensorError):
+      discard broadcastTo(inputs[0], [2, 5], [1])
+    doAssertRaises(TensorError):
+      discard broadcastTo(inputs[0], [2, 3], [2])
+    ctx.traceReturn([inputs[0]])
 
 block trace_broadcast_then_add:
   ## Realistic pattern: bias broadcast onto a matmul output.
@@ -120,3 +139,17 @@ block trace_broadcast_then_add:
 block phase5c_vjp_registry:
   for op in ["matmul", "dotGeneral", "broadcastTo"]:
     doAssert hasVjp(op), "missing vjp for " & op
+
+block linalg_composite_api_validation:
+  let a = initTraceTensor(ShValueId(101), dtFloat32, [2, 3], TestDevice)
+  let b = initTraceTensor(ShValueId(102), dtFloat32, [3], TestDevice)
+  doAssertRaises(TensorError):
+    discard tile(a, [2, 0])
+  doAssertRaises(TensorError):
+    discard repeat(a, 2, 3)
+  doAssertRaises(TensorError):
+    discard kron(a, b)
+  doAssertRaises(TensorError):
+    discard fftfreq(0)
+  doAssertRaises(TensorError):
+    discard rfftfreq(4, 0'f32)

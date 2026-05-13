@@ -150,6 +150,8 @@ proc markDonated*(h: BufferHandle; consumer: string) =
   ## After donation, reads and transfers are rejected. ARC still calls the
   ## releaser when the last reference drops, because the wrapper object
   ## remains ours even if PJRT may have reused the backing allocation.
+  if h.isNil:
+    raise newException(ValueError, "markDonated: nil buffer handle")
   h.state = bsDonated
   h.donatedBy = consumer
 
@@ -164,14 +166,16 @@ proc raiseDonated(h: BufferHandle; opName: string) {.noreturn, noinline.} =
 proc requireLive*(h: BufferHandle; opName: string) =
   ## Guard called by every op that reads from a `BufferHandle`. Raises
   ## `BufferDonatedError` for `bsDonated` and `bsReleased` states.
+  if h.isNil:
+    raise newException(ValueError, opName & ": nil buffer handle")
   case h.state
   of bsLive: discard
   of bsDonated, bsReleased: raiseDonated(h, opName)
 
 proc isLive*(h: BufferHandle): bool =
   ## Convenience predicate; true iff `requireLive` would not raise.
-  h.state == bsLive
+  not h.isNil and h.state == bsLive
 
 proc isDonated*(h: BufferHandle): bool =
   ## True iff the handle is in the `bsDonated` state.
-  h.state == bsDonated
+  not h.isNil and h.state == bsDonated
