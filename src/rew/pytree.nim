@@ -1,15 +1,20 @@
-## Pytree — generic flatten/unflatten over tensor-bearing value types.
+## Pytree - generic flatten/unflatten over tensor-bearing value types.
 ##
 ## ## Why
-## A "pytree" is any value type whose fields are either `Tensor`s, other
-## pytrees, or `seq`/`array`/tuples of pytrees. The framework uses a
-## single pytree walker to drive optimizer state updates, `grad` over
-## arbitrary parameter containers, serialization, and device transfer —
-## without a `Module` base class and without registering types.
+## A "pytree" is any value type whose fields are either `Tensor`s,
+## `Param[Tensor]`, `Buffer[Tensor]`, other pytrees, or `seq`/`array`/tuples
+## of pytrees. The framework uses a single pytree walker to drive optimizer
+## state updates, `grad` over arbitrary parameter containers, serialization,
+## and device transfer - without a `Module` base class and without registering
+## types.
 ##
 ## ## API
-## - `treeFlatten(t)` returns the flat `seq[Tensor]` of leaves in
-##   field-declaration order.
+## - `Param[T]` marks trainable state.
+## - `Buffer[T]` marks non-trainable state that still participates in device
+##   transfer and checkpointing.
+## - `treeFlatten(t)` returns the flat `seq[Tensor]` of all tensor-bearing
+##   leaves in field-declaration order.
+## - `treeLeaves(t)` returns path/kind metadata for every tensor-bearing leaf.
 ## - `treeUnflatten(t, leaves)` returns a copy of `t` with its tensor
 ##   leaves replaced (in the same order) by the values from `leaves`. It
 ##   raises `PytreeError` if the count does not match.
@@ -18,14 +23,78 @@
 ##
 ## Both procs recurse through nested `object`/`tuple` fields and through
 ## `seq`/`array` of pytrees. Non-tensor scalar fields (ints, floats,
-## strings, enums, …) are preserved verbatim.
+## strings, enums, ...) are preserved verbatim.
 
 import ./tensor
+import ./dtype
+import ./device
 
 type
   PytreeError* = object of CatchableError
     ## Raised by `treeUnflatten` when the leaf count does not match the
     ## tree's structure.
+
+  Param*[T] = object
+    ## Trainable pytree leaf wrapper.
+    value*: T
+
+  Buffer*[T] = object
+    ## Non-trainable pytree leaf wrapper.
+    value*: T
+
+  TreeLeafKind* = enum
+    tlTensor
+    tlParam
+    tlBuffer
+
+  TreeLeaf* = object
+    ## Named tensor-bearing leaf discovered during a pytree walk.
+    path*: string
+    tensor*: Tensor
+    kind*: TreeLeafKind
+
+  TreePartition* = object
+    ## Result of selecting leaves by path/kind.
+    selected*: seq[TreeLeaf]
+    rest*: seq[TreeLeaf]
+
+func param*[T](value: T): Param[T] =
+  ## Wraps `value` as trainable state.
+  Param[T](value: value)
+
+func buffer*[T](value: T): Buffer[T] =
+  ## Wraps `value` as non-trainable state.
+  Buffer[T](value: value)
+
+converter paramToTensor*(p: Param[Tensor]): Tensor =
+  p.value
+
+converter bufferToTensor*(b: Buffer[Tensor]): Tensor =
+  b.value
+
+converter tensorToParam*(t: Tensor): Param[Tensor] =
+  Param[Tensor](value: t)
+
+converter tensorToBuffer*(t: Tensor): Buffer[Tensor] =
+  Buffer[Tensor](value: t)
+
+func shape*(p: Param[Tensor]): seq[int] =
+  p.value.shape
+
+func shape*(b: Buffer[Tensor]): seq[int] =
+  b.value.shape
+
+func dtype*(p: Param[Tensor]): DType =
+  p.value.dtype
+
+func dtype*(b: Buffer[Tensor]): DType =
+  b.value.dtype
+
+func device*(p: Param[Tensor]): Device =
+  p.value.device
+
+func device*(b: Buffer[Tensor]): Device =
+  b.value.device
 
 # ---- treeFlatten ----------------------------------------------------------
 
@@ -33,6 +102,12 @@ proc flattenInto(dst: var seq[Tensor]; v: Tensor) =
   dst.add(v)
 
 proc flattenInto[T](dst: var seq[Tensor]; v: T)
+
+proc flattenInto[T](dst: var seq[Tensor]; v: Param[T]) =
+  flattenInto(dst, v.value)
+
+proc flattenInto[T](dst: var seq[Tensor]; v: Buffer[T]) =
+  flattenInto(dst, v.value)
 
 proc flattenInto[T](dst: var seq[Tensor]; v: seq[T]) =
   for item in v: flattenInto(dst, item)
@@ -55,6 +130,82 @@ proc treeFlatten*[T](v: T): seq[Tensor] =
   result = @[]
   flattenInto(result, v)
 
+# ---- treeLeaves / treePaths -----------------------------------------------
+
+proc childPath(base, name: string): string =
+  if base.len == 0: name else: base & "." & name
+
+proc indexPath(base: string; i: int): string =
+  if base.len == 0: "[" & $i & "]" else: base & "[" & $i & "]"
+
+proc collectLeaves(dst: var seq[TreeLeaf]; path: string; v: Tensor;
+    kind: TreeLeafKind = tlTensor) =
+  dst.add TreeLeaf(path: path, tensor: v, kind: kind)
+
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: T;
+    kind: TreeLeafKind = tlTensor)
+
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: Param[T];
+    kind: TreeLeafKind = tlTensor) =
+  collectLeaves(dst, path, v.value, tlParam)
+
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: Buffer[T];
+    kind: TreeLeafKind = tlTensor) =
+  collectLeaves(dst, path, v.value, tlBuffer)
+
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: seq[T];
+    kind: TreeLeafKind = tlTensor) =
+  for i, item in v:
+    collectLeaves(dst, indexPath(path, i), item, kind)
+
+proc collectLeaves[N, T](dst: var seq[TreeLeaf]; path: string; v: array[N, T];
+    kind: TreeLeafKind = tlTensor) =
+  for i, item in v:
+    collectLeaves(dst, indexPath(path, i), item, kind)
+
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: T;
+    kind: TreeLeafKind = tlTensor) =
+  when T is Tensor:
+    dst.add TreeLeaf(path: path, tensor: v, kind: kind)
+  elif T is (object | tuple):
+    for name, field in fieldPairs(v):
+      collectLeaves(dst, childPath(path, name), field, kind)
+  else:
+    discard
+
+proc treeLeaves*[T](v: T): seq[TreeLeaf] =
+  ## Returns tensor-bearing leaves with stable field paths.
+  result = @[]
+  collectLeaves(result, "", v)
+
+proc treePaths*[T](v: T): seq[string] =
+  ## Returns paths for every tensor-bearing leaf.
+  for leaf in treeLeaves(v):
+    result.add leaf.path
+
+proc paramsOf*[T](v: T): seq[string] =
+  ## Returns paths for trainable leaves. Bare `Tensor` leaves are treated as
+  ## trainable for compatibility with plain value layers.
+  for leaf in treeLeaves(v):
+    if leaf.kind in {tlParam, tlTensor}:
+      result.add leaf.path
+
+proc buffersOf*[T](v: T): seq[string] =
+  ## Returns paths for non-trainable buffer leaves.
+  for leaf in treeLeaves(v):
+    if leaf.kind == tlBuffer:
+      result.add leaf.path
+
+proc treePartition*[T](v: T;
+    pred: proc(path: string; kind: TreeLeafKind): bool {.closure.}):
+    TreePartition =
+  ## Splits leaves into `selected` and `rest` using a path/kind predicate.
+  for leaf in treeLeaves(v):
+    if pred(leaf.path, leaf.kind):
+      result.selected.add leaf
+    else:
+      result.rest.add leaf
+
 # ---- treeUnflatten --------------------------------------------------------
 
 proc unflattenInto(dst: var Tensor; leaves: seq[Tensor]; idx: var int) =
@@ -65,6 +216,12 @@ proc unflattenInto(dst: var Tensor; leaves: seq[Tensor]; idx: var int) =
   inc idx
 
 proc unflattenInto[T](dst: var T; leaves: seq[Tensor]; idx: var int)
+
+proc unflattenInto[T](dst: var Param[T]; leaves: seq[Tensor]; idx: var int) =
+  unflattenInto(dst.value, leaves, idx)
+
+proc unflattenInto[T](dst: var Buffer[T]; leaves: seq[Tensor]; idx: var int) =
+  unflattenInto(dst.value, leaves, idx)
 
 proc unflattenInto[T](dst: var seq[T]; leaves: seq[Tensor]; idx: var int) =
   for i in 0 ..< dst.len:
@@ -84,7 +241,10 @@ proc unflattenInto[T](dst: var T; leaves: seq[Tensor]; idx: var int) =
     inc idx
   elif T is (object | tuple):
     for _, field in fieldPairs(dst):
-      unflattenInto(field, leaves, idx)
+      when compiles(unflattenInto(field, leaves, idx)):
+        unflattenInto(field, leaves, idx)
+      else:
+        discard
   else:
     discard
 

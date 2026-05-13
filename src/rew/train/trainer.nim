@@ -40,6 +40,8 @@ import ./hooks
 import ./optimizer
 import ./callback
 import ./callbacks/checkpoint
+import ./datapipe
+import ./state
 
 type
   TrainerError* = object of CatchableError
@@ -663,6 +665,70 @@ proc fit*[T, D](trainer: var Trainer; task: var T; data: D) =
   else:
     raise newException(TrainerError,
       "manual optimization requires task.trainingStep(batch, batchIdx, ctx)")
+
+# ---- typed TrainState fit ----------------------------------------------------
+
+proc logStepResult[S](ctx: var TrainContext; result: StepResult[S]) =
+  ctx.log("loss", result.loss, onStep = true, onEpoch = true, progBar = true)
+  for metric in result.metrics:
+    if metric.name != "loss":
+      ctx.log(metric.name, metric.value,
+        onStep = true, onEpoch = true, progBar = metric.progBar)
+
+proc fit*[M, B](trainer: var Trainer; state: var TrainState[M];
+    data: DataSplits[B]; loss: LossFn[M, B]) =
+  ## Fits a `TrainState` from a typed loss function.
+  ##
+  ## This is the progressive-disclosure default: users provide
+  ## `loss(model, batch, ctx)` and the Trainer owns gradient computation,
+  ## optimizer state, step counting, callbacks, and compiled-step caching.
+  let runtime = initRuntime(trainer.accelerator, trainer.devices,
+    trainer.precision, trainer.strategy)
+  var ctx = initTrainContext(tmFit)
+  var step = compileTrainStep(loss, state, runtime,
+    donate = if trainer.donateParams: paramsOf(state.model) else: @[])
+
+  for epoch in 0 ..< trainer.maxEpochs:
+    ctx.epoch = epoch
+    let iter = data.train.source()
+    var batchIdx = 0
+    while true:
+      let batch = iter()
+      if finished(iter): break
+      if trainer.maxSteps.isSome and ctx.globalStep >= trainer.maxSteps.get():
+        return
+      let result = step(state, batch)
+      state = result.state
+      ctx.logStepResult(result)
+      ctx.globalStep += 1
+      batchIdx += 1
+    ctx.reduceEpochMetrics()
+    if ctx.shouldStop:
+      break
+
+proc fit*[M, B](trainer: var Trainer; state: var TrainState[M];
+    data: DataSplits[B]; trainStep: TrainStepFn[M, B]) =
+  ## Fits a `TrainState` from a user-owned custom step.
+  let runtime = initRuntime(trainer.accelerator, trainer.devices,
+    trainer.precision, trainer.strategy)
+  var ctx = initTrainContext(tmFit)
+  for epoch in 0 ..< trainer.maxEpochs:
+    ctx.epoch = epoch
+    let iter = data.train.source()
+    while true:
+      let batch = iter()
+      if finished(iter): break
+      if trainer.maxSteps.isSome and ctx.globalStep >= trainer.maxSteps.get():
+        return
+      let callCtx = initCallCtx(runtime, epoch, ctx.globalStep, tmFit,
+        state.key)
+      let result = trainStep(state, batch, callCtx)
+      state = result.state
+      ctx.logStepResult(result)
+      ctx.globalStep += 1
+    ctx.reduceEpochMetrics()
+    if ctx.shouldStop:
+      break
 
 # ---- validate ----------------------------------------------------------------
 

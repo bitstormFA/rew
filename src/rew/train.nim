@@ -14,6 +14,7 @@
 import ./train/workbench
 import ./train/context
 import ./train/datapipe
+import ./train/state
 import ./train/hooks
 import ./train/optimizer
 import ./train/callback
@@ -23,6 +24,7 @@ import ./train/trainer
 export workbench
 export context
 export datapipe
+export state
 export hooks
 export optimizer
 export callback

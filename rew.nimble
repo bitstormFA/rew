@@ -27,6 +27,7 @@ task lint, "Run architectural lints (layer imports, vjp coverage, no ref in nn/o
   exec "nim c -r tools/check_vjp_coverage.nim"
   exec "nim c -r tools/check_openxla_coverage.nim"
   exec "nim c -r tools/check_no_ref_in_nn.nim"
+  exec "nim c -r tools/check_high_level_api.nim"
 
 task bench, "Run Rechenwerk/PyTorch MNIST example benchmarks":
   exec "python3 benchmarks/run.py"

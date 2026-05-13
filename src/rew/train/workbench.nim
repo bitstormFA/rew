@@ -24,6 +24,15 @@ import ../ops/distributed as distOps
 import ../stablehlo/[ir, ops as shops]
 
 type
+  CompilePolicy* = object
+    ## Controls how high-level typed steps are compiled.
+    enabled*: bool
+    donateParams*: bool
+
+  CheckpointPolicy* = object
+    ## Default checkpoint behavior for Runtime-owned save/load helpers.
+    dir*: string
+
   Accelerator* = enum
     akCpu
     akCuda
@@ -51,6 +60,12 @@ type
     processIndex*: int
     processCount*: int
     key*: Key
+    compile*: CompilePolicy
+    checkpoint*: CheckpointPolicy
+
+  Runtime* = Workbench
+    ## Public high-level runtime name. `Workbench` remains as a migration
+    ## alias for user-owned loops.
 
 # ---- PRNG key management -----------------------------------------------------
 
@@ -106,7 +121,15 @@ proc initWorkbench*(accelerator: Accelerator = akAuto; devices: int = 1;
     processIndex: dist.process.processIndex,
     processCount: dist.process.processCount,
     key: initKeyFromGlobalSeed(),
+    compile: CompilePolicy(enabled: true, donateParams: false),
+    checkpoint: CheckpointPolicy(dir: "checkpoints"),
   )
+
+proc initRuntime*(accelerator: Accelerator = akAuto; devices: int = 1;
+    precision: Precision = prFloat32;
+    strategy: ParallelPolicy = autoParallel()): Runtime =
+  ## Creates a high-level Runtime for typed training steps and manual loops.
+  initWorkbench(accelerator, devices, precision, strategy)
 
 # ---- setup (models) ----------------------------------------------------------
 

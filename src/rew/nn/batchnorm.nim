@@ -5,6 +5,7 @@
 ## and used for inference.
 
 import ../tensor
+import ../pytree
 import ../ops/literal
 import ../ops/normalization
 import ../ops/arith
@@ -15,10 +16,10 @@ type
   BatchNorm1d* = object
     ## 1-D batch normalization over the feature axis (axis 1 for
     ## `[N, C]` input, axis 2 for `[N, L, C]` input).
-    gamma*: Tensor
-    beta*: Tensor
-    runningMean*: Tensor
-    runningVar*: Tensor
+    gamma*: Param[Tensor]
+    beta*: Param[Tensor]
+    runningMean*: Buffer[Tensor]
+    runningVar*: Buffer[Tensor]
     momentum*: float32
     eps*: float32
     numFeatures*: int
@@ -26,10 +27,10 @@ type
   BatchNorm2d* = object
     ## 2-D batch normalization over the channel axis for NHWC input
     ## (featureIndex = 3).
-    gamma*: Tensor
-    beta*: Tensor
-    runningMean*: Tensor
-    runningVar*: Tensor
+    gamma*: Param[Tensor]
+    beta*: Param[Tensor]
+    runningMean*: Buffer[Tensor]
+    runningVar*: Buffer[Tensor]
     momentum*: float32
     eps*: float32
     numFeatures*: int
@@ -44,8 +45,8 @@ proc initBatchNorm1d*(numFeatures: int; momentum: float32 = 0.1'f32;
   BatchNorm1d(
     gamma: constantF32([numFeatures], ones),
     beta: constantF32([numFeatures], zeros),
-    runningMean: constantF32([numFeatures], zeros),
-    runningVar: constantF32([numFeatures], ones),
+    runningMean: buffer(constantF32([numFeatures], zeros)),
+    runningVar: buffer(constantF32([numFeatures], ones)),
     momentum: momentum,
     eps: eps,
     numFeatures: numFeatures,
@@ -61,8 +62,8 @@ proc initBatchNorm2d*(numFeatures: int; momentum: float32 = 0.1'f32;
   BatchNorm2d(
     gamma: constantF32([numFeatures], ones),
     beta: constantF32([numFeatures], zeros),
-    runningMean: constantF32([numFeatures], zeros),
-    runningVar: constantF32([numFeatures], ones),
+    runningMean: buffer(constantF32([numFeatures], zeros)),
+    runningVar: buffer(constantF32([numFeatures], ones)),
     momentum: momentum,
     eps: eps,
     numFeatures: numFeatures,
@@ -83,8 +84,9 @@ proc forward*(layer: var BatchNorm1d; x: Tensor; training: bool = true): Tensor 
     let mom = scalarF32(layer.momentum)
     let oneMinusMom = scalarF32(1'f32 - layer.momentum)
     var bdims: seq[int] = @[]
-    let momB = broadcastTo(mom, layer.runningMean.shape, bdims)
-    let oneMinusMomB = broadcastTo(oneMinusMom, layer.runningMean.shape, bdims)
+    let momB = broadcastTo(mom, layer.runningMean.value.shape, bdims)
+    let oneMinusMomB = broadcastTo(oneMinusMom,
+      layer.runningMean.value.shape, bdims)
     layer.runningMean = add(mul(oneMinusMomB, layer.runningMean),
                              mul(momB, batchMean))
     layer.runningVar = add(mul(oneMinusMomB, layer.runningVar),
@@ -111,8 +113,9 @@ proc forward*(layer: var BatchNorm2d; x: Tensor; training: bool = true): Tensor 
     let mom = scalarF32(layer.momentum)
     let oneMinusMom = scalarF32(1'f32 - layer.momentum)
     var bdims: seq[int] = @[]
-    let momB = broadcastTo(mom, layer.runningMean.shape, bdims)
-    let oneMinusMomB = broadcastTo(oneMinusMom, layer.runningMean.shape, bdims)
+    let momB = broadcastTo(mom, layer.runningMean.value.shape, bdims)
+    let oneMinusMomB = broadcastTo(oneMinusMom,
+      layer.runningMean.value.shape, bdims)
     layer.runningMean = add(mul(oneMinusMomB, layer.runningMean),
                              mul(momB, batchMean))
     layer.runningVar = add(mul(oneMinusMomB, layer.runningVar),
