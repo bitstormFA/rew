@@ -35,6 +35,7 @@ matching the layer you are about to edit before making changes.
 
 ```
 bau test               # debug + release + danger
+bau testFast [filter]  # dev-profile tests for fast iteration
 bau lint               # architectural lints
 bau asan               # AddressSanitizer
 bau fetch cpu          # download CPU PJRT plugin

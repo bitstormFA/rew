@@ -40,6 +40,7 @@ fetch = "task fetch --"
 hfFetch = "task hfFetch --"
 lint = "task lint"
 openxla = "task openxla --"
+testFast = "task testFast --"
 updateManifest = "task updateManifest"
 
 [profile.dev]
@@ -105,6 +106,12 @@ deps = [
 name = "asan"
 cmd = "nim c -d:addressSanitizer -r tests/all.nim"
 description = "Run the test suite under AddressSanitizer"
+
+[[tasks]]
+name = "testFast"
+cmd = "nim c -r --hints:off tests/all.nim -- {args}"
+description = "Run dev-profile tests only for fast local iteration"
+acceptArgs = true
 
 [[tasks]]
 name = "bench"

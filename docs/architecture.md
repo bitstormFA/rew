@@ -266,6 +266,7 @@ Both paths use the same `ShBuilder` ops and the same VJP registry.
 | Tool | Purpose |
 |------|---------|
 | `bau test` | Full suite in debug, release, danger |
+| `bau testFast [filter]` | Dev-profile runner for fast local iteration |
 | `bau lint` | Layer imports, VJP coverage, OpenXLA coverage, no-ref-in-nn |
 | `bau asan` | AddressSanitizer run |
 | `bau fetch <target>` | Download PJRT plugin |
@@ -278,8 +279,9 @@ Both paths use the same `ShBuilder` ops and the same VJP registry.
 ### Writing tests
 
 Each `tests/t*.nim` file compiles to a standalone binary. The runner
-`tests/all.nim` discovers and runs all `t*.nim` files in sequence; one failure
-does not abort the rest. Test files can live in subdirectories.
+`tests/all.nim` discovers all `t*.nim` files and runs child builds in parallel;
+one failure does not abort the rest. Test files can live in subdirectories. Set
+`REW_TEST_JOBS=1` to force serial execution while debugging.
 
 Use `REW_TARGET=cpu` to force CPU-only tests when no accelerator is available.
 

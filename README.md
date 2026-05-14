@@ -93,9 +93,14 @@ auto-detection.
 
 ```bash
 bau lint
+bau testFast       # dev-profile tests for fast iteration
 bau test
 bau asan
 ```
+
+The full `bau test` command still runs debug, release, and danger. The test
+runner defaults to parallel child test builds; set `REW_TEST_JOBS=1` to debug
+serially or raise it on larger machines.
 
 Architecture notes live in [docs/architecture.md](docs/architecture.md), the
 user guide is in [docs/user-guide.md](docs/user-guide.md), and PJRT plugin

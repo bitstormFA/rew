@@ -51,6 +51,7 @@ tensor/ops → autograd → transform → pytree → nn/optim → debug.
 
 ```
 bau test               # debug + release + danger
+bau testFast [filter]  # dev-profile tests for fast iteration
 bau lint               # architectural lints
 bau asan               # AddressSanitizer over the suite
 bau fetch cpu          # download CPU PJRT plugin
