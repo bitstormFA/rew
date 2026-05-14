@@ -3,7 +3,7 @@
 Run the MNIST example benchmarks against equivalent PyTorch implementations:
 
 ```sh
-nimble bench
+bau bench
 ```
 
 The runner compiles `benchmarks/rew_mnist.nim`, runs

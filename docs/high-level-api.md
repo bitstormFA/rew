@@ -211,7 +211,7 @@ Minimum verification for this area:
 
 ```sh
 nim c -r tools/check_high_level_api.nim
-nimble lint
+bau lint
 ```
 
 For behavior changes, also update the coherent MNIST example and the coherent

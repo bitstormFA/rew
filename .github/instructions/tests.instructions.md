@@ -25,4 +25,4 @@ applyTo: "tests/**"
 
 - [`nim-testing`](../../.agents/skills/nim-testing/SKILL.md) — the canonical
   reference for everything above, plus the AddressSanitizer setup that
-  `nimble asan` invokes.
+  `bau asan` invokes.

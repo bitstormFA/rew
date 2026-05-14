@@ -1,6 +1,6 @@
-## Source-tree wrapper for `nimble fetch <target>`.
+## Source-tree wrapper for `bau fetch <target>`.
 
 import ../src/rew/binaries/fetch_cli
 
 when isMainModule:
-  runFetchCli("nimble fetch")
+  runFetchCli("bau fetch")

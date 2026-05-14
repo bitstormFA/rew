@@ -36,5 +36,5 @@ tests if behavior or vocabulary changed, then run:
 
 ```sh
 nim c -r tools/check_high_level_api.nim
-nimble lint
+bau lint
 ```

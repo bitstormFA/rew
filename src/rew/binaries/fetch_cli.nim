@@ -19,7 +19,7 @@ proc printUsage(programName: string) =
 
 proc runFetchCli*(programName = "rew_fetch") =
   ## Runs the plugin-fetch CLI. Intended for both the installed `rew_fetch`
-  ## executable and the source-tree `nimble fetch` task.
+  ## executable and the source-tree `bau fetch` task.
   if paramCount() < 1:
     printUsage(programName)
     quit 1

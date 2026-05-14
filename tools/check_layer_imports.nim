@@ -8,7 +8,7 @@
 ##  - Outside `src/rew/pjrt/`, only the allow-listed adapter modules may
 ##    import from `src/rew/pjrt/`.
 ##
-## Exits non-zero on any violation. Run via `nimble lint`.
+## Exits non-zero on any violation. Run via `bau lint`.
 
 import std/[os, strutils, sequtils]
 

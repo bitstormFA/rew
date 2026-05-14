@@ -1,4 +1,4 @@
-## CLI entry point for `nimble buildPlugin <target>`.
+## CLI entry point for `bau buildPlugin <target>`.
 ## Builds a PJRT plugin from an openxla/xla checkout.
 
 import std/os
@@ -6,7 +6,7 @@ import ../src/rew/binaries/[target, builder]
 
 proc main() =
   if paramCount() < 1:
-    echo "Usage: nimble buildPlugin <target>"
+    echo "Usage: bau buildPlugin <target>"
     echo "  target: cpu | cuda12 | cuda13 | rocm | tpu"
     echo ""
     echo "Builds a PJRT plugin from source. Requires:"

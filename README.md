@@ -28,9 +28,12 @@ requires "rew >= 0.2.0"
 From a source checkout:
 
 ```bash
-nimble test
-nimble fetch cpu
+bau test
+bau fetch cpu
 ```
+
+Development commands are declared in `bau.toml` and require Bau 0.4.0 or newer
+on `PATH`.
 
 Installed packages also provide the standalone plugin downloader:
 
@@ -70,7 +73,7 @@ nim c -r quickstart.nim
   loops with callbacks.
 - Data: lazy datasets, transforms, batching, image loading, and graph data
   helpers.
-- Binaries: `nimble fetch <target>`, `rew_fetch <target>`, `nimble doctor`,
+- Binaries: `bau fetch <target>`, `rew_fetch <target>`, `bau task doctor`,
   and manifest-driven plugin caches.
 
 ## Examples
@@ -89,9 +92,9 @@ auto-detection.
 ## Development
 
 ```bash
-nimble lint
-nimble test
-nimble asan
+bau lint
+bau test
+bau asan
 ```
 
 Architecture notes live in [docs/architecture.md](docs/architecture.md), the

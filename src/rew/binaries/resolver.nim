@@ -44,7 +44,7 @@ proc resolvePluginPath*(t: Target): string =
       return built
     raise newException(ResolveError,
       "REW_BUILD=true but no built plugin found at " & built &
-      ". Run `nimble buildPlugin " & targetName(t) & "` first.")
+      ". Run `bau buildPlugin " & targetName(t) & "` first.")
 
   # 3. Check for already-extracted plugin in cache
   let cached = pluginPathForTarget(t)

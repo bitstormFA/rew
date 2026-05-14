@@ -26,7 +26,7 @@ proc bazelTarget(t: Target): string =
   of tMetal:
     raise newException(BuildError,
       "building the Metal PJRT plugin from openxla/xla is not supported; " &
-        "use `nimble fetch metal` to install the jax-metal binary")
+        "use `bau fetch metal` to install the jax-metal binary")
 
 proc bazelBinPath(t: Target): string =
   ## Relative path under `bazel-bin/` where the plugin lands.
@@ -38,7 +38,7 @@ proc bazelBinPath(t: Target): string =
   of tMetal:
     raise newException(BuildError,
       "building the Metal PJRT plugin from openxla/xla is not supported; " &
-        "use `nimble fetch metal` to install the jax-metal binary")
+        "use `bau fetch metal` to install the jax-metal binary")
 
 proc buildPlugin*(t: Target) =
   ## Builds the PJRT plugin for `t` from source and copies it into the

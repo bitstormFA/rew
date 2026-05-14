@@ -19,10 +19,25 @@ jobs:
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: ${{ matrix.nim }}
-      - name: nimble lint (architectural lints)
-        run: nimble lint -y
-      - name: nimble test (debug + release + danger)
-        run: nimble test -y
+      - name: Install Bau
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v0.4.0 https://github.com/bitstormFA/bau "$RUNNER_TEMP/bau"
+          nimble install -y parsetoml atlas
+          mkdir -p "$HOME/.nimble/bin"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            bau_bin="$HOME/.nimble/bin/bau.exe"
+          else
+            bau_bin="$HOME/.nimble/bin/bau"
+          fi
+          nim c --path:"$RUNNER_TEMP/bau/src" -o:"$bau_bin" "$RUNNER_TEMP/bau/src/bau.nim"
+          echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
+      - name: Bau dependencies
+        run: bau deps sync --locked
+      - name: Bau lint (architectural lints)
+        run: bau lint
+      - name: Bau test (debug + release + danger)
+        run: bau test
 
   cuda:
     # Optional GPU smoke. Only runs when a self-hosted CUDA runner is
@@ -36,9 +51,19 @@ jobs:
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: 'stable'
+      - name: Install Bau
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v0.4.0 https://github.com/bitstormFA/bau "$RUNNER_TEMP/bau"
+          nimble install -y parsetoml atlas
+          mkdir -p "$HOME/.nimble/bin"
+          nim c --path:"$RUNNER_TEMP/bau/src" -o:"$HOME/.nimble/bin/bau" "$RUNNER_TEMP/bau/src/bau.nim"
+          echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
+      - name: Bau dependencies
+        run: bau deps sync --locked
       - name: Fetch CUDA 12 PJRT plugin
-        run: nimble fetch cuda12 -y
+        run: bau fetch cuda12
       - name: Tests on CUDA
         env:
           REW_TARGET: cuda12
-        run: nimble test -y
+        run: bau test

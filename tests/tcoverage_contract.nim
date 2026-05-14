@@ -1,7 +1,7 @@
 ## Fast source-level guard for the primitive-op testing contract.
 ##
 ## This intentionally avoids importing `rew`, so it stays cheap while catching
-## missing autograd policies and unmentioned primitive ops early in `nimble test`.
+## missing autograd policies and unmentioned primitive ops early in `bau test`.
 
 import std/[algorithm, os, sets, strutils]
 

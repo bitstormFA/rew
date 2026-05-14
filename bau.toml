@@ -1,0 +1,152 @@
+[package]
+name = "rew"
+version = "0.2.0"
+description = "Rechenwerk (rew) - eager, debuggable Nim deep learning framework on OpenXLA/PJRT"
+authors = ["Rechenwerk contributors"]
+license = "MIT"
+edition = "2026"
+exclude = ["artifacts", "graphify-out", "scratch", "tf_logs"]
+
+[toolchain]
+nim = ">=2.2.0"
+atlas = ">=0.8"
+
+[build]
+name = "rew_fetch"
+kind = "bin"
+source = "src"
+main = "src/rew_fetch.nim"
+output = "rew_fetch"
+includeDefault = true
+
+[docs]
+outDir = "docs/api"
+entrypoints = ["src/rew.nim", "src/rew/xla.nim", "src/rew/dev.nim"]
+runExamples = false
+
+[test]
+runner = "tests/all.nim"
+profiles = ["dev", "release", "danger"]
+recursive = true
+exclude = ["thelper.nim"]
+showOutput = "auto"
+
+[aliases]
+asan = "task asan"
+bench = "task bench"
+buildPlugin = "task buildPlugin --"
+ci = "task ci"
+fetch = "task fetch --"
+hfFetch = "task hfFetch --"
+lint = "task lint"
+openxla = "task openxla --"
+updateManifest = "task updateManifest"
+
+[profile.dev]
+flags = ["--debugInfo:on"]
+gc = "orc"
+
+[profile.release]
+flags = ["-d:release"]
+gc = "orc"
+
+[profile.danger]
+flags = ["-d:danger"]
+gc = "orc"
+
+[profile.asan]
+flags = ["-d:addressSanitizer"]
+gc = "orc"
+
+[[targets]]
+name = "rewrun"
+kind = "bin"
+main = "src/rewrun.nim"
+output = "rewrun"
+
+[[targets]]
+name = "rew"
+kind = "lib"
+main = "src/rew.nim"
+output = "rew"
+
+[[tasks]]
+name = "lintLayerImports"
+cmd = "nim c -r tools/check_layer_imports.nim"
+description = "Check architectural import boundaries"
+
+[[tasks]]
+name = "lintVjpCoverage"
+cmd = "nim c -r tools/check_vjp_coverage.nim"
+description = "Check VJP coverage for rewOp declarations"
+
+[[tasks]]
+name = "lintOpenxlaCoverage"
+cmd = "nim c -r tools/check_openxla_coverage.nim"
+description = "Check OpenXLA manifest and op coverage"
+
+[[tasks]]
+name = "lintNoRefInNn"
+cmd = "nim c -r tools/check_no_ref_in_nn.nim"
+description = "Check nn/optim value-type invariant"
+
+[[tasks]]
+name = "lint"
+cmd = "nim c -r tools/check_high_level_api.nim"
+description = "Run architectural lints"
+deps = [
+  "lintLayerImports",
+  "lintVjpCoverage",
+  "lintOpenxlaCoverage",
+  "lintNoRefInNn",
+]
+
+[[tasks]]
+name = "asan"
+cmd = "nim c -d:addressSanitizer -r tests/all.nim"
+description = "Run the test suite under AddressSanitizer"
+
+[[tasks]]
+name = "bench"
+cmd = "python3 benchmarks/run.py"
+description = "Run Rechenwerk/PyTorch MNIST example benchmarks"
+
+[[tasks]]
+name = "fetch"
+cmd = "nim c -r --hints:off tools/fetch.nim -- {args}"
+description = "Download a PJRT plugin for a target into the cache"
+acceptArgs = true
+
+[[tasks]]
+name = "hfFetch"
+cmd = "nim c -r --hints:off tools/hf_fetch.nim -- {args}"
+description = "Download Hugging Face model or dataset assets into the HF cache"
+acceptArgs = true
+
+[[tasks]]
+name = "buildPlugin"
+cmd = "nim c -r --hints:off tools/build_plugin.nim -- {args}"
+description = "Build a PJRT plugin from an openxla/xla checkout"
+acceptArgs = true
+
+[[tasks]]
+name = "updateManifest"
+cmd = "nim c -r --hints:off tools/update_manifest.nim"
+description = "Re-resolve vendor URLs and recompute manifest checksums"
+
+[[tasks]]
+name = "doctor"
+cmd = "nim c -r --hints:off examples/list_devices.nim"
+description = "Verify installed PJRT plugins by listing devices"
+
+[[tasks]]
+name = "openxla"
+cmd = "nim c -r --hints:off tools/openxla_tool.nim -- {args}"
+description = "Run an optional OpenXLA tool through rew's wrapper"
+acceptArgs = true
+
+[[tasks]]
+name = "ci"
+cmd = "bau test"
+description = "Run architectural lints and the full test matrix"
+deps = ["lint"]

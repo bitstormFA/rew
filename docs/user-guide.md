@@ -75,7 +75,7 @@ target, compile StableHLO programs, and execute them.
 
 Rew loads PJRT plugins via `dlopen` at runtime. This means:
 - You can target CPU, CUDA 12, CUDA 13, ROCm, Metal, or TPU by downloading
-  the appropriate plugin (via `nimble fetch <target>` from a checkout, or
+  the appropriate plugin (via `bau fetch <target>` from a checkout, or
   `rew_fetch <target>` after installing the package).
 - Multiple plugins load concurrently — one process can use CPU and GPU
   simultaneously.
@@ -371,7 +371,7 @@ REW_TARGET=cuda12 nim c -r my_training.nim
 ### 4.1 Prerequisites
 
 - Nim ≥ 2.2.0
-- A PJRT plugin for your target (download with `nimble fetch` from a checkout,
+- A PJRT plugin for your target (download with `bau fetch` from a checkout,
   or `rew_fetch` after installing the package)
 - For CUDA: NVIDIA driver and CUDA toolkit installed
 - For ROCm: ROCm drivers installed
@@ -383,16 +383,16 @@ git clone https://github.com/rechenwerk/rew.git
 cd rew
 
 # Download the CPU PJRT plugin (works everywhere)
-nimble fetch cpu
+bau fetch cpu
 
 # Or for CUDA 12
-nimble fetch cuda12
+bau fetch cuda12
 
-# After `nimble install`, use the installed downloader from any directory
+# After installing the package, use the installed downloader from any directory
 rew_fetch cpu
 
 # Run the test suite
-nimble test
+bau test
 ```
 
 ### 4.3 Environment Variables
@@ -1445,12 +1445,12 @@ while the Python-like training boilerplate stays in the Trainer.
 Fetch the matching PJRT plugin once:
 
 ```bash
-nimble fetch cuda12
+bau fetch cuda12
 # or, after installing rew:
 rew_fetch cuda12
 ```
 
-Use `tCuda13` and `nimble fetch cuda13` or `rew_fetch cuda13` instead when
+Use `tCuda13` and `bau fetch cuda13` or `rew_fetch cuda13` instead when
 your environment is on CUDA 13. The example below pins CUDA 12 explicitly:
 
 ```nim
@@ -2805,7 +2805,7 @@ except TensorError as e:
   plugins and recompiling jit programs across runs.
 - For CUDA/ROCm multi-GPU setups, use `REW_TARGET=cuda12` and select
   the ordinal via `initDevice(tCuda12, ordinal = gpuIndex)`.
-- Use `nimble doctor` to list all available devices for installed targets.
+- Use `bau task doctor` to list all available devices for installed targets.
 
 ### 7.8 Compilation Flags
 
@@ -2813,7 +2813,7 @@ except TensorError as e:
   transforms.
 - The `--d:release` flag enables optimizations. Use `--d:danger` to
   disable all runtime checks for maximum performance in production.
-- AddressSanitizer: `nimble asan` runs the test suite with
+- AddressSanitizer: `bau asan` runs the test suite with
   `-d:addressSanitizer`.
 
 ### 7.9 Extending Rew
@@ -2825,7 +2825,7 @@ When adding new ops, layers, or optimizers:
    - Add eager support in `src/rew/eager.nim`.
    - Register VJP rule or `registerNoGrad` in `src/rew/autograd/rules.nim`.
    - Write tests (numerical correctness, eager-vs-jit equivalence, VJP).
-   - Run `nimble lint` — the VJP coverage lint must pass.
+   - Run `bau lint` — the VJP coverage lint must pass.
    - Re-export from `src/rew.nim`.
 
 2. **New nn layer:**
@@ -2862,6 +2862,6 @@ When adding new ops, layers, or optimizers:
   Trainer), GAN training, QLoRA adapter training.
 - **Test suite:** `tests/` — Standalone `t*.nim` files demonstrating
   every operation and subsystem.
-- **Developer tooling:** `nimble lint` (architectural lints), `nimble test`
-  (full suite), `nimble doctor` (device listing).
+- **Developer tooling:** `bau lint` (architectural lints), `bau test`
+  (full suite), `bau task doctor` (device listing).
 - **Nim style guide:** [NEP-1](https://nim-lang.org/docs/nep1.html)

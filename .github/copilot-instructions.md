@@ -50,19 +50,19 @@ tensor/ops → autograd → transform → pytree → nn/optim → debug.
 ## Build & test commands
 
 ```
-nimble test            # debug + release + danger
-nimble lint            # architectural lints
-nimble asan            # AddressSanitizer over the suite
-nimble fetch cpu       # download CPU PJRT plugin
-nimble fetch cuda12    # download CUDA 12 PJRT plugin
+bau test               # debug + release + danger
+bau lint               # architectural lints
+bau asan               # AddressSanitizer over the suite
+bau fetch cpu          # download CPU PJRT plugin
+bau fetch cuda12       # download CUDA 12 PJRT plugin
 rew_fetch cpu          # installed plugin downloader, no source tree needed
-nimble buildPlugin cpu # build from openxla/xla source
-nimble updateManifest  # re-resolve URLs + recompute SHA-256s
-nimble doctor          # list devices for all available targets
+bau buildPlugin cpu    # build from openxla/xla source
+bau updateManifest     # re-resolve URLs + recompute SHA-256s
+bau task doctor        # list devices for all available targets
 nim c -r tests/all.nim # quick single-config run
 ```
 
-Every PR must keep `nimble test` and `nimble lint` green.
+Every PR must keep `bau test` and `bau lint` green.
 
 ## Style and engineering practices
 

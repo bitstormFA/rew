@@ -12,7 +12,7 @@ matching the layer you are about to edit before making changes.
 ## Quick rules
 
 - Edit only the layer you came for.
-- Keep `nimble test` and `nimble lint` green.
+- Keep `bau test` and `bau lint` green.
 - New ops require: forward emitter + vjp registration + numerical test +
   `jit`-vs-eager equivalence test.
 - No `ref object` under `src/rew/nn/` or `src/rew/optim/`.
@@ -34,15 +34,15 @@ matching the layer you are about to edit before making changes.
 ## Build / test
 
 ```
-nimble test            # debug + release + danger
-nimble lint            # architectural lints
-nimble asan            # AddressSanitizer
-nimble fetch cpu       # download CPU PJRT plugin
-nimble fetch cuda12    # download CUDA 12 PJRT plugin
+bau test               # debug + release + danger
+bau lint               # architectural lints
+bau asan               # AddressSanitizer
+bau fetch cpu          # download CPU PJRT plugin
+bau fetch cuda12       # download CUDA 12 PJRT plugin
 rew_fetch cpu          # installed plugin downloader, no source tree needed
-nimble buildPlugin cpu # build from openxla/xla source
-nimble updateManifest  # re-resolve URLs + recompute SHA-256s
-nimble doctor          # list devices for all available targets
+bau buildPlugin cpu    # build from openxla/xla source
+bau updateManifest     # re-resolve URLs + recompute SHA-256s
+bau task doctor        # list devices for all available targets
 ```
 
 ## graphify

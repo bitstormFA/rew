@@ -74,17 +74,17 @@ training APIs.
    Explicit splittable PRNG (`Key`, `split`, `foldIn`). Optimizers are
    composable gradient transforms. No `Module` base class.
 
-9. **Layout, build, and public tiers.** `nimble` package `rew`, user-level
+9. **Layout, build, and public tiers.** Bau project/package `rew`, user-level
    umbrella `src/rew.nim`, compiler tier `src/rew/xla.nim`, extension tier
    `src/rew/dev.nim`, internals under `src/rew/<layer>/...`. StableHLO op
-   names follow pinned release tags. Architectural lints under `nimble lint`
+   names follow pinned release tags. Architectural lints under `bau lint`
    cover layer imports, VJP coverage, OpenXLA coverage, no-ref-in-nn, and the
    coherent high-level API.
 
 10. **Agent instructions.** Per-layer `.github/instructions/*.instructions.md`
     with `applyTo:` globs; repo-wide `.github/copilot-instructions.md`; mirror
     at [AGENTS.md](../AGENTS.md). Edit only the layer you came for; keep
-    `nimble test` and `nimble lint` green.
+    `bau test` and `bau lint` green.
 
 ## Layer map
 
@@ -188,7 +188,7 @@ Both paths use the same `ShBuilder` ops and the same VJP registry.
    equivalence, and VJP correctness (if differentiable). Name the test file
    `t<feature>.nim`.
 
-5. **Run `nimble lint`** — the VJP coverage lint will fail if the op is
+5. **Run `bau lint`** — the VJP coverage lint will fail if the op is
    unaccounted for.
 
 6. **Re-export** from `src/rew.nim` if the op lives in a new file (add the
@@ -265,15 +265,15 @@ Both paths use the same `ShBuilder` ops and the same VJP registry.
 
 | Tool | Purpose |
 |------|---------|
-| `nimble test` | Full suite in debug, release, danger |
-| `nimble lint` | Layer imports, VJP coverage, OpenXLA coverage, no-ref-in-nn |
-| `nimble asan` | AddressSanitizer run |
-| `nimble fetch <target>` | Download PJRT plugin |
+| `bau test` | Full suite in debug, release, danger |
+| `bau lint` | Layer imports, VJP coverage, OpenXLA coverage, no-ref-in-nn |
+| `bau asan` | AddressSanitizer run |
+| `bau fetch <target>` | Download PJRT plugin |
 | `rew_fetch <target>` | Installed standalone PJRT plugin downloader |
-| `nimble buildPlugin <target>` | Build PJRT plugin from source |
-| `nimble updateManifest` | Re-resolve URLs + recompute checksums |
-| `nimble doctor` | List devices for all available targets |
-| `nimble openxla <tool>` | Run OpenXLA CLI tools |
+| `bau buildPlugin <target>` | Build PJRT plugin from source |
+| `bau updateManifest` | Re-resolve URLs + recompute checksums |
+| `bau task doctor` | List devices for all available targets |
+| `bau openxla <tool>` | Run OpenXLA CLI tools |
 
 ### Writing tests
 

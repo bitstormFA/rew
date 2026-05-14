@@ -1,6 +1,9 @@
 nimcache/
 nimblecache/
 htmldocs/
+build/
+deps/
+bau.local.toml
 __pycache__/
 *.pyc
 

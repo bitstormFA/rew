@@ -6,7 +6,7 @@
 ## or `registerNoGrad("opName", ...)`).
 ##
 ## Until those modules exist, this lint is a no-op that prints OK so Phase 0
-## can pass `nimble check`. It begins enforcing as soon as `tensor.nim` lands.
+## can pass `bau lint`. It begins enforcing as soon as `tensor.nim` lands.
 
 import std/[os, strutils, re, sets]
 

@@ -106,15 +106,15 @@ cached plugins or serialized executables that might be ABI-incompatible.
 ```
 
 The manifest is committed at the repo root and embedded at compile time via
-`staticRead`. Run `nimble updateManifest` to re-resolve URLs and recompute
+`staticRead`. Run `bau updateManifest` to re-resolve URLs and recompute
 checksums.
 
 ## Fetching plugins
 
-When using rew from a source checkout, use the Nimble task:
+When using rew from a source checkout, use the Bau task:
 
 ```bash
-nimble fetch cpu
+bau fetch cpu
 ```
 
 Installed packages also provide a standalone downloader:
@@ -134,21 +134,21 @@ For platforms not in the manifest, build from an openxla/xla checkout:
 ```bash
 export REW_BUILD=true
 export REW_BUILD_XLA_DIR=/path/to/openxla/xla
-nimble buildPlugin cpu     # or cuda12, cuda13, rocm, tpu
+bau buildPlugin cpu        # or cuda12, cuda13, rocm, tpu
 ```
 
 Requirements: Bazel v7.7+, Clang, and platform-specific SDKs (CUDA, cuDNN,
 ROCm, etc.). Metal is distributed as a binary `jax-metal` plugin and is not
 supported by the `buildPlugin` source-build shim.
 
-## Nimble tasks
+## Bau tasks
 
 | Task | Description |
 |------|-------------|
-| `nimble fetch <target>` | Download + cache a PJRT plugin |
+| `bau fetch <target>` | Download + cache a PJRT plugin |
 | `rew_fetch <target>` | Installed standalone downloader for the same plugins |
-| `nimble buildPlugin <target>` | Build a plugin from source |
-| `nimble updateManifest` | Re-resolve URLs + recompute SHA-256s |
-| `nimble doctor` | List devices for all available targets |
-| `nimble openxla list` | Show optional OpenXLA tool paths and availability |
-| `nimble openxla <tool> [args...]` | Run `run_hlo_module`, Shardy, XProf, Tokamax, or another configured tool |
+| `bau buildPlugin <target>` | Build a plugin from source |
+| `bau updateManifest` | Re-resolve URLs + recompute SHA-256s |
+| `bau task doctor` | List devices for all available targets |
+| `bau openxla list` | Show optional OpenXLA tool paths and availability |
+| `bau openxla <tool> [args...]` | Run `run_hlo_module`, Shardy, XProf, Tokamax, or another configured tool |
