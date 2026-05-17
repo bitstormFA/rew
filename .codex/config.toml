@@ -1,0 +1,3 @@
+[mcp_servers.bau]
+command = "bau"
+args = ["mcp"]

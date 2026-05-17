@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "bau": {
+      "type": "stdio",
+      "command": "bau",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}
