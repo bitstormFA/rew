@@ -3,6 +3,7 @@
 ## catches them with messages that mention user-facing op names.
 
 import rew
+import rew/xla
 import std/strutils
 
 template assertRaises(body: untyped; mustContain: string) =

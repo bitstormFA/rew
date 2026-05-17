@@ -1,6 +1,7 @@
 ## Phase 7b.1 \u2014 in-graph control flow: `cond`.
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)

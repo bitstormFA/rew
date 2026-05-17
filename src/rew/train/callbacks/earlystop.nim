@@ -37,8 +37,8 @@ func toCallback*(es: EarlyStopping): Callback =
     waitCount: 0,
   )
   result = initCallback("EarlyStopping")
-  result.onTrainEpochEnd = some(proc(trainer, task: pointer;
-      ctx: var TrainContext) {.closure.} =
+  result.onTrainEpochEnd = some(proc(ctx: var TrainContext;
+      saveCheckpoint: CheckpointWriter) {.closure.} =
     var currentScore: float32
     var found = false
     for m in ctx.epochMetrics:

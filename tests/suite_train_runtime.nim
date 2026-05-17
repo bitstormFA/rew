@@ -1,43 +1,43 @@
-## Phase 8 — Workbench: init, setup, PRNG keys, distributed collectives.
+## Phase 8 — Runtime: init, setup, PRNG keys, distributed collectives.
 
 import std/strutils
 
-block init_workbench_defaults:
-  let wb = initWorkbench()
-  doAssert wb.devices == 1
-  doAssert wb.precision == prFloat32
-  doAssert wb.globalRank == 0
-  doAssert wb.worldSize == 1
-  doAssert wb.isGlobalZero()
+block init_runtime_defaults:
+  let runtime = initRuntime()
+  doAssert runtime.devices == 1
+  doAssert runtime.precision == prFloat32
+  doAssert runtime.globalRank == 0
+  doAssert runtime.worldSize == 1
+  doAssert runtime.isGlobalZero()
 
-block init_workbench_cpu:
-  let wb = initWorkbench(akCpu)
-  doAssert wb.device.target == tCpu
+block init_runtime_cpu:
+  let runtime = initRuntime(akCpu)
+  doAssert runtime.device.target == tCpu
 
 block setup_model_is_identity:
-  var wb = initWorkbench(akCpu)
+  var runtime = initRuntime(akCpu)
   let model = @[1, 2, 3]
-  let result = wb.setup(model)
+  let result = runtime.setup(model)
   doAssert result == model
 
 block setup_data_is_identity:
-  var wb = initWorkbench(akCpu)
+  var runtime = initRuntime(akCpu)
   let data = fromSeq(@[1, 2, 3])
-  let result = wb.setup(data)
+  let result = runtime.setup(data)
   doAssert result.source != nil  # Dataset.source is a closure, verify non-nil
 
 block distributed_single_process_fast_paths:
-  let wb = initWorkbench(akCpu)
-  doAssert wb.isGlobalZero()
-  wb.barrier()  # no-op, must not crash
+  let runtime = initRuntime(akCpu)
+  doAssert runtime.isGlobalZero()
+  runtime.barrier()  # no-op, must not crash
 
 block distributed_collectives_trace:
-  var wb = initWorkbench(akCpu, devices = 2)
-  withTrace ctx, "workbench_collectives", cpu(0):
+  var runtime = initRuntime(akCpu, devices = 2)
+  withTrace ctx, "runtime_collectives", cpu(0):
     let inputs = ctx.traceInputs(@[dtFloat32], @[@[2]])
-    let gathered = wb.allGather(inputs[0])
-    let reduced = wb.allReduce(inputs[0])
-    let broadcasted = wb.broadcast(inputs[0])
+    let gathered = runtime.allGather(inputs[0])
+    let reduced = runtime.allReduce(inputs[0])
+    let broadcasted = runtime.broadcast(inputs[0])
     doAssert gathered.shape == @[4]
     doAssert reduced.shape == @[2]
     doAssert broadcasted.shape == @[2]
@@ -50,15 +50,15 @@ block distributed_collectives_trace:
   doAssert "stablehlo.collective_broadcast" in text
 
 block distributed_collectives_require_trace_for_multi:
-  let wb = initWorkbench(akCpu, devices = 2)
+  let runtime = initRuntime(akCpu, devices = 2)
   let t = initTraceTensor(ShValueId(1), dtFloat32, @[2], cpu(0))
   doAssertRaises(TensorError):
-    discard wb.allReduce(t)
+    discard runtime.allReduce(t)
 
 block prng_next_key:
-  var wb = initWorkbench(akCpu)
-  let k1 = wb.nextKey()
-  let k2 = wb.nextKey()
+  var runtime = initRuntime(akCpu)
+  let k1 = runtime.nextKey()
+  let k2 = runtime.nextKey()
   doAssert k1 != k2
 
 block seed_everything:

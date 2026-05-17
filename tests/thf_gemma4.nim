@@ -1,5 +1,6 @@
 import std/[json, os, streams, strutils, tables]
 import rew
+import rew/xla
 
 proc tempPath(name: string): string =
   getTempDir() / ("rew_" & $getCurrentProcessId() & "_" & name)

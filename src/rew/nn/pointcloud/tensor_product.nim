@@ -10,6 +10,7 @@
 
 import std/math
 import ../../tensor
+import ../../pytree
 import ../../dtype
 import ../../rng
 import ../../ops/literal
@@ -39,8 +40,8 @@ type
     ## Forward:
     ##   out_{l3,m3,c_out} = Σ_{l1,l2,c_in} W_{l1,l2,l3,c_in,c_out} *
     ##     Σ_{m1,m2} CG(l1,m1,l2,m2,l3,m3) * in1_{l1,m1,c_in} * in2_{l2,m2,c_in}
-    weights*: Tensor   ## [totalPaths, maxPathChannels, outChannels]
-    cgCoeffs*: Tensor  ## [totalPaths, 2*l1+1, 2*l2+1, 2*l3+1]
+    weights*: Param[Tensor]   ## [totalPaths, maxPathChannels, outChannels]
+    cgCoeffs*: Buffer[Tensor] ## [totalPaths, 2*l1+1, 2*l2+1, 2*l3+1]
     inIrreps*: Irreps
     outIrreps*: Irreps
     sharedIrreps*: Irreps   ## irrep list for input2 (shared channel dim)
@@ -160,8 +161,8 @@ proc initTensorProduct*(key: Key; inIrreps1, inIrreps2, outIrreps: Irreps;
   let weightData = normalF32(key, paths.len * outChannels,
     0'f32, 1'f32 / sqrt(float32(paths.len)))
   TensorProduct(
-    weights: constantF32(@[paths.len, outChannels], weightData),
-    cgCoeffs: cgAll,
+    weights: param(constantF32(@[paths.len, outChannels], weightData)),
+    cgCoeffs: buffer(cgAll),
     inIrreps: inIrreps1,
     outIrreps: outIrreps,
     sharedIrreps: inIrreps2,

@@ -9,6 +9,7 @@
 
 import std/[strformat, math]
 import rew
+import rew/xla
 import rew/pjrt/[capi, client, loader]
 
 proc f32Tensor(d: Device; shape: openArray[int];

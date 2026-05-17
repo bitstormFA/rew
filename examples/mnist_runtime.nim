@@ -1,6 +1,6 @@
-## MNIST MLP training with the Workbench API (Tier 1).
+## MNIST MLP training with the Runtime API (Tier 1).
 ##
-## The Workbench provides device management, PRNG keys, save/load, and
+## The Runtime provides device management, PRNG keys, save/load, and
 ## distributed stubs — but **you own the training loop**. Compare with
 ## `mnist_trainer.nim` where the framework owns the loop.
 ##
@@ -10,11 +10,12 @@
 ## and `train_labels.npy`, or the example runs with synthetic data:
 ##
 ## ```
-## REW_MNIST_DIR=$HOME/datasets/mnist nim c -r examples/mnist_workbench.nim
+## REW_MNIST_DIR=$HOME/datasets/mnist nim c -r examples/mnist_runtime.nim
 ## ```
 
 import std/[math, os, strformat]
 import rew
+import rew/xla
 import rew/train
 import rew/pjrt/loader
 
@@ -46,10 +47,12 @@ proc initModelEager(d: Device; key: Key): (Linear, Linear) =
   var b1 = newSeq[float32](HiddenDim)
   var w2 = uniformF32(keys[1], HiddenDim * NumClasses, -bound, bound)
   var b2 = newSeq[float32](NumClasses)
-  (Linear(weight: fromHostF32(d, w1, [ImagePixels, HiddenDim]),
-          bias:   fromHostF32(d, b1, [HiddenDim])),
-   Linear(weight: fromHostF32(d, w2, [HiddenDim, NumClasses]),
-          bias:   fromHostF32(d, b2, [NumClasses])))
+  (Linear(
+      weight: param(fromHostF32(d, w1, [ImagePixels, HiddenDim])),
+      bias: param(fromHostF32(d, b1, [HiddenDim]))),
+   Linear(
+      weight: param(fromHostF32(d, w2, [HiddenDim, NumClasses])),
+      bias: param(fromHostF32(d, b2, [NumClasses]))))
 
 # ---- Forward pass ---------------------------------------------------------
 
@@ -82,21 +85,21 @@ proc run() =
   installEagerBackend()
   echo &"  using device: {d}"
 
-  # ---- Workbench (you configure it) ----
-  var wb = initWorkbench(akCpu)
+  # ---- Runtime (you configure it) ----
+  var runtime = initRuntime(akCpu)
   seedEverything(42)
-  echo &"  workbench: device={wb.device}, isGlobalZero={wb.isGlobalZero()}"
+  echo &"  runtime: device={runtime.device}, isGlobalZero={runtime.isGlobalZero()}"
 
   # ---- Model (you initialise it) ----
-  var (fc1, fc2) = initModelEager(d, wb.nextKey())
+  var (fc1, fc2) = initModelEager(d, runtime.nextKey())
   let lr = scalarF32(d, LearningRate)
 
   # ---- Build a jit-compiled training step (you write it) ----
   let trainFn: JitFn = proc(args: openArray[Tensor]): seq[Tensor] =
     let xa = args[4]; let ya = args[5]; let lr = args[6]
     let lossFn = proc(p: openArray[Tensor]): Tensor =
-      let l1 = Linear(weight: p[0], bias: p[1])
-      let l2 = Linear(weight: p[2], bias: p[3])
+      let l1 = Linear(weight: param(p[0]), bias: param(p[1]))
+      let l2 = Linear(weight: param(p[2]), bias: param(p[3]))
       softmaxCrossEntropy(forward(l1, l2, xa), ya)
     let vr = vjp(lossFn, [args[0], args[1], args[2], args[3]])
     let grads = vr.pullback(scalarF32(1'f32))
@@ -106,7 +109,7 @@ proc run() =
     @[vr.output, upd(args[0], grads[0]), upd(args[1], grads[1]),
       upd(args[2], grads[2]), upd(args[3], grads[3])]
 
-  let trainJ = jit(trainFn, "mnist_workbench_step", donateArgs = [0, 1, 2, 3])
+  let trainJ = jit(trainFn, "mnist_runtime_step", donateArgs = [0, 1, 2, 3])
 
   # ---- Training loop (you own it!) ----
   echo &"  Training for {Epochs} epochs ({StepsPerEpoch} steps each)..."
@@ -114,23 +117,23 @@ proc run() =
     var epochLoss = 0.0'f32
 
     for step in 0 ..< StepsPerEpoch:
-      let (bx, by) = syntheticBatch(d, wb.nextKey())
+      let (bx, by) = syntheticBatch(d, runtime.nextKey())
       let outs = trainJ.call([
-          fc1.weight, fc1.bias, fc2.weight, fc2.bias, bx, by, lr])
-      fc1 = Linear(weight: outs[1], bias: outs[2])
-      fc2 = Linear(weight: outs[3], bias: outs[4])
+          fc1.weight.value, fc1.bias.value, fc2.weight.value, fc2.bias.value, bx, by, lr])
+      fc1 = Linear(weight: param(outs[1]), bias: param(outs[2]))
+      fc2 = Linear(weight: param(outs[3]), bias: param(outs[4]))
       epochLoss += readBackF32(outs[0])[0]
 
     echo &"  epoch {epoch}: loss = {epochLoss / float32(StepsPerEpoch):.4f}"
 
-  # ---- Save checkpoint with the Workbench ----
-  let ckptPath = "/tmp/mnist_workbench_ckpt"
-  wb.save(ckptPath, (fc1, fc2))
+  # ---- Save checkpoint with the Runtime ----
+  let ckptPath = "/tmp/mnist_runtime_ckpt"
+  runtime.save(ckptPath, (fc1, fc2))
   echo &"  checkpoint saved to {ckptPath}"
 
   # ---- Load checkpoint ----
   let prototype = (fc1, fc2)
-  let (loadedFc1, loadedFc2) = wb.load(ckptPath, prototype)
+  let (loadedFc1, loadedFc2) = runtime.load(ckptPath, prototype)
   echo &"  checkpoint loaded: fc1.weight.shape = {loadedFc1.weight.shape}"
 
 when isMainModule:

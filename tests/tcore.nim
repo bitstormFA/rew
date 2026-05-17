@@ -4,6 +4,7 @@
 
 import std/[os, strutils]
 import rew
+import rew/xla
 import rew/[buffer, device, dtype, eager]
 import rew/binaries/target
 import rew/pjrt/[capi, loader]
@@ -529,8 +530,8 @@ block tensor_product_trace_metadata:
   withTrace ctx, "tensor_product_trace", cpu(0):
     let inputs = ctx.traceInputs(@[dtFloat32, dtFloat32], @[@[2, 1], @[2, 1]])
     let tp = TensorProduct(
-      weights: constantF32([1, 1], [2.0'f32]),
-      cgCoeffs: constantF32([1, 1, 1, 1], [1.0'f32]),
+      weights: param(constantF32([1, 1], [2.0'f32])),
+      cgCoeffs: buffer(constantF32([1, 1, 1, 1], [1.0'f32])),
       inIrreps: @[0],
       outIrreps: @[0],
       sharedIrreps: @[0],

@@ -4,6 +4,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/arith
@@ -27,7 +28,7 @@ type
     concat*: bool           ## If true, concat heads; else average
     negativeSlope*: float32
     addBias*: bool
-    bias*: Tensor            ## shape [outChannels * numHeads] or [outChannels]
+    bias*: Param[Tensor]     ## shape [outChannels * numHeads] or [outChannels]
 
 proc initGATConv*(key: Key; inChannels, outChannels, numHeads: int;
     concat: bool = true; negativeSlope: float32 = 0.2'f32;
@@ -50,7 +51,7 @@ proc initGATConv*(key: Key; inChannels, outChannels, numHeads: int;
   if bias:
     let biasSize = if concat: outTotal else: outChannels
     let bData = zerosF32(biasSize)
-    result.bias = constantF32(@[biasSize], bData)
+    result.bias = param(constantF32(@[biasSize], bData))
 
 proc forward*(layer: GATConv; x, edgeIndex: Tensor): Tensor =
   ## Forward pass of GATConv.

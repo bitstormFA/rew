@@ -124,6 +124,34 @@ proc initState*[P](tx: GradientTransform; params: P): OptimState =
 proc zeroLike(t: Tensor): Tensor =
   zerosLike(t)
 
+proc maskNonParamGrads[P](grads: P; params: P): P =
+  let paramLeaves = treeLeaves(params)
+  let gradLeaves = treeLeaves(grads)
+  if paramLeaves.len != gradLeaves.len:
+    raise newException(PytreeError,
+      "GradientTransform.update: leaf-count mismatch (" &
+        $paramLeaves.len & " vs " & $gradLeaves.len & ")")
+  var mapped = newSeq[Tensor](gradLeaves.len)
+  for i, leaf in gradLeaves:
+    mapped[i] =
+      if paramLeaves[i].kind == tlParam: leaf.tensor
+      else: zeroLike(leaf.tensor)
+  treeUnflatten(grads, mapped)
+
+proc restoreNonParamLeaves[P](params: P; updated: P): P =
+  let paramLeaves = treeLeaves(params)
+  let updatedLeaves = treeLeaves(updated)
+  if paramLeaves.len != updatedLeaves.len:
+    raise newException(PytreeError,
+      "GradientTransform.update: updated leaf-count mismatch (" &
+        $paramLeaves.len & " vs " & $updatedLeaves.len & ")")
+  var mapped = newSeq[Tensor](updatedLeaves.len)
+  for i, leaf in updatedLeaves:
+    mapped[i] =
+      if paramLeaves[i].kind == tlParam: leaf.tensor
+      else: paramLeaves[i].tensor
+  treeUnflatten(updated, mapped)
+
 proc scaleTree[P](tree: P; scale: Tensor): P =
   let leaves = treeFlatten(tree)
   var mapped = newSeq[Tensor](leaves.len)
@@ -150,11 +178,15 @@ proc update*[P](tx: GradientTransform; grads: P; state: OptimState;
   ## Applies `tx` to `grads` and returns `(newParams, newState)`.
   case tx.kind
   of gtkSgd:
-    (tx.sgd.step(params, grads), OptimState(kind: gtkSgd))
+    let maskedGrads = maskNonParamGrads(grads, params)
+    let updated = tx.sgd.step(params, maskedGrads)
+    (restoreNonParamLeaves(params, updated), OptimState(kind: gtkSgd))
   of gtkAdamW:
+    let maskedGrads = maskNonParamGrads(grads, params)
     let (newParams, newAdamState) =
-      tx.adamw.step(params, grads, state.adamState)
-    (newParams, OptimState(kind: gtkAdamW, adamState: newAdamState))
+      tx.adamw.step(params, maskedGrads, state.adamState)
+    (restoreNonParamLeaves(params, newParams),
+      OptimState(kind: gtkAdamW, adamState: newAdamState))
   of gtkClipByGlobalNorm:
     (clipGradNorm(grads, tx.maxNorm), OptimState(kind: gtkClipByGlobalNorm))
   of gtkFreeze:
@@ -183,7 +215,7 @@ proc update*[P](tx: GradientTransform; grads: P; state: OptimState;
         if i < state.states.len: state.states[i]
         else: initState(child, currentParams)
       case child.kind
-      of gtkClipByGlobalNorm, gtkFreeze:
+      of gtkClipByGlobalNorm, gtkFreeze, gtkScaleBySchedule:
         let (newGrads, newState) =
           child.update(currentGrads, childState, currentParams)
         currentGrads = newGrads

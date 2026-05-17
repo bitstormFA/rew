@@ -1,6 +1,7 @@
 ## Tests for Grouped Query Attention (GQA / MQA).
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)

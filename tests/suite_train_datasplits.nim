@@ -1,22 +1,22 @@
-## Phase 8 — DataPipe construction and iteration.
+## Phase 8 — DataSplits construction and iteration.
 
-block init_datapipe_train_only:
+block init_datasplits_train_only:
   let trainFn = fromSeq(@[1, 2, 3])
-  let pipe = initDataPipe(trainFn)
-  doAssert isSome(pipe.val) == false
-  doAssert isSome(pipe.test) == false
-  doAssert isSome(pipe.predict) == false
+  let splits = initDataSplits(trainFn)
+  doAssert isSome(splits.val) == false
+  doAssert isSome(splits.test) == false
+  doAssert isSome(splits.predict) == false
 
-block init_datapipe_with_val:
+block init_datasplits_with_val:
   let trainFn = fromSeq(@[1, 2, 3])
   let valFn = fromSeq(@[4, 5])
-  let pipe = initDataPipe(trainFn, val = some(valFn))
-  doAssert isSome(pipe.val)
+  let splits = initDataSplits(trainFn, val = some(valFn))
+  doAssert isSome(splits.val)
 
-block datapipe_iteration:
+block datasplits_train_iteration:
   let data = fromSeq(@[1, 2, 3, 4, 5])
-  let pipe = initDataPipe(data)
-  let iter = pipe.train.source()
+  let splits = initDataSplits(data)
+  let iter = splits.train.source()
   var items: seq[int] = @[]
   while true:
     let item = iter()
@@ -24,13 +24,13 @@ block datapipe_iteration:
     items.add item
   doAssert items == @[1, 2, 3, 4, 5]
 
-block datapipe_with_batch:
+block datasplits_with_batch:
   var batches: seq[Batch] = @[]
   for i in 0 ..< 3:
     batches.add Batch(data: @[float32(i)], dataShape: @[1],
         labels: @[i], batchSize: 1)
-  let pipe = initDataPipe(fromSeq(batches))
-  let iter = pipe.train.source()
+  let splits = initDataSplits(fromSeq(batches))
+  let iter = splits.train.source()
   var count = 0
   while true:
     let b = iter()
@@ -39,11 +39,11 @@ block datapipe_with_batch:
     count += 1
   doAssert count == 3
 
-block datapipe_val_iteration:
+block datasplits_val_iteration:
   let trainFn = fromSeq(@[1, 2])
   let valFn = fromSeq(@[10, 20, 30])
-  let pipe = initDataPipe(trainFn, val = some(valFn))
-  let valIter = pipe.val.get().source()
+  let splits = initDataSplits(trainFn, val = some(valFn))
+  let valIter = splits.val.get().source()
   var sum = 0
   while true:
     let item = valIter()

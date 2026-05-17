@@ -1,6 +1,7 @@
 ## Phase 6 \u2014 autograd vjp registry, tape, grad/vjp transform.
 
 import rew
+import rew/dev
 import std/strutils
 
 let TestDevice = cpu(0)
@@ -257,7 +258,7 @@ block grad_of_linear_loss:
       let bias = broadcastTo(b, xw.shape, [1])
       let pred = add(xw, bias)
       mseLoss(pred, target)
-    let grads = grad(f, [layer.weight, layer.bias])
+    let grads = grad(f, [layer.weight.value, layer.bias.value])
     doAssert grads.len == 2
     doAssert grads[0].shape == @[4, 3]
     doAssert grads[1].shape == @[3]

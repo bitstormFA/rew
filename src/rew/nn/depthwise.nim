@@ -6,6 +6,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/arith
@@ -19,8 +20,8 @@ type
     ## Depthwise 2-D convolution. Each input channel is convolved with its
     ## own filter. Kernel shape is `[outChannels, 1, kH, kW]` with
     ## `outChannels = inChannels * channelMultiplier`.
-    weight*: Tensor
-    bias*: Tensor
+    weight*: Param[Tensor]
+    bias*: Param[Tensor]
     stride*: array[2, int]
     padding*: array[2, array[2, int]]
     dilation*: array[2, int]
@@ -55,8 +56,9 @@ proc initDepthwiseConv2d*(key: Key; inChannels, channelMultiplier: int;
   let wData = uniformF32(keys[0], wCount, -bound, bound)
   let bData = newSeq[float32](outChannels)
   DepthwiseConv2d(
-    weight: constantF32([outChannels, 1, kernelSize[0], kernelSize[1]], wData),
-    bias: constantF32([outChannels], bData),
+    weight: param(
+      constantF32([outChannels, 1, kernelSize[0], kernelSize[1]], wData)),
+    bias: param(constantF32([outChannels], bData)),
     stride: stride,
     padding: padding,
     dilation: dilation,

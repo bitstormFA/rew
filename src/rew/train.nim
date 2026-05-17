@@ -1,32 +1,28 @@
 ## Train umbrella — re-exports the two-tier training API.
 ##
-## ## Tier 1: Workbench
+## ## Tier 1: Runtime
 ## Opt-in scaling. You own the loop.
 ##
 ## ## Tier 2: Trainer
-## Full automation. The framework owns the loop.
+## Typed automation over `TrainState`, `DataSplits`, and loss/custom-step procs.
 ##
 ## Usage:
 ##   import rew/train
 ##   # or, for individual modules:
-##   import rew/train/[workbench, context, trainer]
+##   import rew/train/[runtime, context, trainer]
 
-import ./train/workbench
+import ./train/runtime
 import ./train/context
-import ./train/datapipe
+import ./train/datasplits
 import ./train/state
-import ./train/hooks
-import ./train/optimizer
 import ./train/callback
 import ./train/callbacks/[checkpoint, earlystop, progress, logmonitor]
 import ./train/trainer
 
-export workbench
+export runtime
 export context
-export datapipe
+export datasplits
 export state
-export hooks
-export optimizer
 export callback
 export checkpoint
 export earlystop

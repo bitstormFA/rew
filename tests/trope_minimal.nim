@@ -1,4 +1,5 @@
 import rew
+import rew/xla
 let TestDevice = cpu(0)
 
 block test_rope_debug:

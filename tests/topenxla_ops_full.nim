@@ -1,6 +1,7 @@
 ## Full pinned StableHLO surface coverage for the late OpenXLA ops.
 
 import rew
+import rew/xla
 import std/strutils
 
 template assertContains(haystack, needle: string) =

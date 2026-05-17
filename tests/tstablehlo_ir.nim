@@ -1,6 +1,7 @@
 ## Phase 2a — StableHLO IR construction via the builder API.
 
 import rew
+import rew/xla
 
 block build_simple_add:
   var b = initBuilder("test_add")

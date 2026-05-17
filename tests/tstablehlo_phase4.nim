@@ -1,6 +1,7 @@
 ## Phase 4 — verifier + textual emitter for the new ops.
 
 import rew
+import rew/xla
 import std/strutils
 
 block verify_div_max_min:

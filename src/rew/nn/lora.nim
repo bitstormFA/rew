@@ -11,6 +11,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../dtype
 import ../rng
 import ../ops/shape
@@ -22,6 +23,11 @@ import ./linear
 import ./init
 
 type
+  FrozenLinear* = object
+    ## Frozen linear projection used as the base path for LoRA adapters.
+    weight*: Buffer[Tensor]
+    bias*: Buffer[Tensor]
+
   LoraLinear* = object
     ## A linear layer augmented with low-rank adaptation.
     ##
@@ -29,9 +35,9 @@ type
     ##   W  = base weight `[inFeatures, outFeatures]`
     ##   A  = `[rank, inFeatures]`  — down-projection
     ##   B  = `[outFeatures, rank]` — up-projection
-    base*: Linear
-    A*: Tensor   ## shape [rank, inFeatures]
-    B*: Tensor   ## shape [outFeatures, rank]
+    base*: FrozenLinear
+    A*: Param[Tensor]   ## shape [rank, inFeatures]
+    B*: Param[Tensor]   ## shape [outFeatures, rank]
     rank*: int
     alpha*: float32
     scaling*: float32
@@ -42,6 +48,19 @@ type
     rank*: int
     alpha*: float32
     targetModules*: seq[string]  ## e.g. ["q_proj", "v_proj", "o_proj"]
+
+proc freezeLinear*(base: Linear): FrozenLinear =
+  ## Converts a trainable `Linear` into a frozen base projection.
+  FrozenLinear(
+    weight: buffer(base.weight.value),
+    bias: buffer(base.bias.value),
+  )
+
+proc forward*(layer: FrozenLinear; x: Tensor): Tensor =
+  ## Computes the frozen affine projection.
+  let xw = matmul(x, layer.weight)
+  let biasB = broadcastTo(layer.bias, xw.shape, [1])
+  add(xw, biasB)
 
 proc initLoraLinear*(key: Key; base: Linear; rank: int;
     alpha: float32 = 0'f32; useKaiming = true): LoraLinear =
@@ -58,9 +77,9 @@ proc initLoraLinear*(key: Key; base: Linear; rank: int;
   # B: zero initialization (important for training stability).
   let bData = newSeq[float32](outFeatures * r)
   LoraLinear(
-    base: base,
-    A: constantF32([r, inFeatures], aData),
-    B: constantF32([outFeatures, r], bData),
+    base: freezeLinear(base),
+    A: param(constantF32([r, inFeatures], aData)),
+    B: param(constantF32([outFeatures, r], bData)),
     rank: r,
     alpha: a,
     scaling: a / float32(r),
@@ -128,7 +147,7 @@ proc merge*(layer: var LoraLinear) =
       let scale = scalarF32(layer.scaling, layer.base.weight.device)
       var dims: seq[int] = @[]
       mul(delta, broadcastTo(scale, delta.shape, dims))
-  layer.base.weight = add(layer.base.weight, scaledDelta)
+  layer.base.weight = buffer(add(layer.base.weight, scaledDelta))
   layer.merged = true
 
 # ---- QLoRA ------------------------------------------------------------------
@@ -145,8 +164,8 @@ type
     groupSize*: int
     inFeatures*: int
     outFeatures*: int
-    A*: Tensor
-    B*: Tensor
+    A*: Param[Tensor]
+    B*: Param[Tensor]
     rank*: int
     alpha*: float32
     scaling*: float32
@@ -157,16 +176,16 @@ type
     ## `qweight` and `qscales` retain the frozen NF4 representation while
     ## `dequantizedWeight` provides a traceable fp32 matmul path. Gradients
     ## should be requested only for `A` and `B` by optimizers/train loops.
-    qweight*: Tensor
-    qscales*: Tensor
-    dequantizedWeight*: Tensor  ## shape `[inFeatures, outFeatures]`
-    bias*: Tensor
+    qweight*: Buffer[Tensor]
+    qscales*: Buffer[Tensor]
+    dequantizedWeight*: Buffer[Tensor]  ## shape `[inFeatures, outFeatures]`
+    bias*: Buffer[Tensor]
     hasBias*: bool
     groupSize*: int
     inFeatures*: int
     outFeatures*: int
-    A*: Tensor
-    B*: Tensor
+    A*: Param[Tensor]
+    B*: Param[Tensor]
     rank*: int
     alpha*: float32
     scaling*: float32
@@ -288,8 +307,8 @@ proc initQuantizedLoraLinearFromF32*(key: Key; weight: openArray[float32];
     groupSize: groupSize,
     inFeatures: inFeatures,
     outFeatures: outFeatures,
-    A: constantF32([r, inFeatures], aData),
-    B: constantF32([outFeatures, r], bData),
+    A: param(constantF32([r, inFeatures], aData)),
+    B: param(constantF32([outFeatures, r], bData)),
     rank: r,
     alpha: a,
     scaling: a / float32(r),
@@ -336,16 +355,18 @@ proc initQloraLinearFromF32*(key: Key; weight: openArray[float32];
   let bData = newSeq[float32](outFeatures * r)
   let biasData = if bias.len == 0: newSeq[float32](outFeatures) else: @bias
   QloraLinear(
-    qweight: constant(dtUint8, [quantized.packed.len], quantized.packed),
-    qscales: constantF32([quantized.scales.len], quantized.scales),
-    dequantizedWeight: constantF32([inFeatures, outFeatures], dequantized),
-    bias: constantF32([outFeatures], biasData),
+    qweight: buffer(constant(dtUint8, [quantized.packed.len],
+      quantized.packed)),
+    qscales: buffer(constantF32([quantized.scales.len], quantized.scales)),
+    dequantizedWeight: buffer(
+      constantF32([inFeatures, outFeatures], dequantized)),
+    bias: buffer(constantF32([outFeatures], biasData)),
     hasBias: true,
     groupSize: groupSize,
     inFeatures: inFeatures,
     outFeatures: outFeatures,
-    A: constantF32([r, inFeatures], aData),
-    B: constantF32([outFeatures, r], bData),
+    A: param(constantF32([r, inFeatures], aData)),
+    B: param(constantF32([outFeatures, r], bData)),
     rank: r,
     alpha: a,
     scaling: a / float32(r),
@@ -370,16 +391,17 @@ proc initQloraLinearFromQuantized*(key: Key; packed: openArray[byte];
   let bData = newSeq[float32](outFeatures * rank)
   let biasData = if bias.len == 0: newSeq[float32](outFeatures) else: @bias
   QloraLinear(
-    qweight: constant(dtUint8, [packed.len], packed),
-    qscales: constantF32([scales.len], scales),
-    dequantizedWeight: constantF32([inFeatures, outFeatures], dequantized),
-    bias: constantF32([outFeatures], biasData),
+    qweight: buffer(constant(dtUint8, [packed.len], packed)),
+    qscales: buffer(constantF32([scales.len], scales)),
+    dequantizedWeight: buffer(
+      constantF32([inFeatures, outFeatures], dequantized)),
+    bias: buffer(constantF32([outFeatures], biasData)),
     hasBias: true,
     groupSize: groupSize,
     inFeatures: inFeatures,
     outFeatures: outFeatures,
-    A: constantF32([rank, inFeatures], aData),
-    B: constantF32([outFeatures, rank], bData),
+    A: param(constantF32([rank, inFeatures], aData)),
+    B: param(constantF32([outFeatures, rank], bData)),
     rank: rank,
     alpha: a,
     scaling: a / float32(rank),

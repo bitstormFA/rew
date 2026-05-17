@@ -5,6 +5,7 @@
 
 import std/json
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/[arith, linalg, literal, shape, unary]
 import ../nn/[activation, attention, embedding, init, linear, norm]
@@ -35,7 +36,7 @@ type
 
   Gemma4RmsNorm* = object
     ## RMSNorm layer with a single scale vector.
-    weight*: Tensor
+    weight*: Param[Tensor]
     eps*: float32
 
   Gemma4TextAttention* = object
@@ -167,7 +168,7 @@ proc loadGemma4TextConfig*(path: string): Gemma4TextConfig =
 proc initGemma4RmsNorm*(hiddenSize: int; eps: float32): Gemma4RmsNorm =
   ## Constructs an RMSNorm scale vector initialized to ones.
   Gemma4RmsNorm(
-    weight: constantF32([hiddenSize], onesF32(hiddenSize)),
+    weight: param(constantF32([hiddenSize], onesF32(hiddenSize))),
     eps: eps,
   )
 

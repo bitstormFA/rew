@@ -6,6 +6,7 @@
 
 import std/[json, math, os, strformat, strutils, times]
 import rew
+import rew/xla
 
 const
   ModelRepo = "google/gemma-4-E4B-it"
@@ -396,13 +397,13 @@ proc initQloraTrainingTensors(d: Device; cfg: QloraConfig):
 proc qloraLayer(baseWeight, bias, a, b: Tensor; cfg: QloraConfig):
     QloraLinear =
   QloraLinear(
-    dequantizedWeight: baseWeight,
-    bias: bias,
+    dequantizedWeight: buffer(baseWeight),
+    bias: buffer(bias),
     hasBias: true,
     inFeatures: TokenBuckets,
     outFeatures: TokenBuckets,
-    A: a,
-    B: b,
+    A: param(a),
+    B: param(b),
     rank: cfg.rank,
     alpha: cfg.alpha,
     scaling: cfg.alpha / float32(cfg.rank),

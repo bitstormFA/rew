@@ -1,7 +1,6 @@
-## Workbench — opt-in training utilities for manual training loops.
+## Runtime — execution context for typed steps and manual training loops.
 ##
-## The Workbench is the "Fabric equivalent" — minimal API surface.
-## You own the training loop; the Workbench provides device management,
+## You own the training loop; the Runtime provides device management,
 ## precision setup, gradient computation, distributed communication,
 ## checkpointing, and PRNG key management.
 
@@ -47,7 +46,7 @@ type
     prMixedF16
     prMixedBF16
 
-  Workbench* = object
+  Runtime* = object
     accelerator*: Accelerator
     devices*: int
     precision*: Precision
@@ -63,18 +62,14 @@ type
     compile*: CompilePolicy
     checkpoint*: CheckpointPolicy
 
-  Runtime* = Workbench
-    ## Public high-level runtime name. `Workbench` remains as a migration
-    ## alias for user-owned loops.
-
 # ---- PRNG key management -----------------------------------------------------
 
 var globalSeed {.threadvar.}: int
 var globalSeedSet {.threadvar.}: bool
 
 proc seedEverything*(seed: int) =
-  ## Sets a global seed for reproducibility. Call before `initWorkbench` to
-  ## make the Workbench's internal key deterministic.
+  ## Sets a global seed for reproducibility. Call before `initRuntime` to
+  ## make the Runtime's internal key deterministic.
   globalSeed = seed
   globalSeedSet = true
 
@@ -85,17 +80,17 @@ proc initKeyFromGlobalSeed*(): Key =
   else:
     initKey(0)
 
-func nextKey*(wb: var Workbench): Key =
-  ## Splits the Workbench's internal PRNG key and returns a fresh child key.
+func nextKey*(runtime: var Runtime): Key =
+  ## Splits the Runtime's internal PRNG key and returns a fresh child key.
   ## Use this to get deterministic, reproducible random keys for each step.
-  let keys = split(wb.key, 2)
-  wb.key = keys[0]
+  let keys = split(runtime.key, 2)
+  runtime.key = keys[0]
   keys[1]
 
-proc initWorkbench*(accelerator: Accelerator = akAuto; devices: int = 1;
+proc initRuntime*(accelerator: Accelerator = akAuto; devices: int = 1;
     precision: Precision = prFloat32;
-    strategy: ParallelPolicy = autoParallel()): Workbench =
-  ## Creates a Workbench with the given accelerator, device count, and precision.
+    strategy: ParallelPolicy = autoParallel()): Runtime =
+  ## Creates a Runtime with the given accelerator, device count, and precision.
   ## v1: single-device only. `akCpu` forces CPU; other accelerators resolve
   ## via `defaultDevice()`.
   let dev = case accelerator
@@ -108,7 +103,7 @@ proc initWorkbench*(accelerator: Accelerator = akAuto; devices: int = 1;
   let globalDeviceCount = max(1, localDevices.len) *
     max(1, dist.process.processCount)
   let mesh = meshFromTopology(dist, ["data"], [globalDeviceCount])
-  Workbench(
+  Runtime(
     accelerator: accelerator,
     devices: devices,
     precision: precision,
@@ -125,22 +120,16 @@ proc initWorkbench*(accelerator: Accelerator = akAuto; devices: int = 1;
     checkpoint: CheckpointPolicy(dir: "checkpoints"),
   )
 
-proc initRuntime*(accelerator: Accelerator = akAuto; devices: int = 1;
-    precision: Precision = prFloat32;
-    strategy: ParallelPolicy = autoParallel()): Runtime =
-  ## Creates a high-level Runtime for typed training steps and manual loops.
-  initWorkbench(accelerator, devices, precision, strategy)
-
 # ---- setup (models) ----------------------------------------------------------
 
-func shouldShardModelParameters(wb: Workbench): bool =
-  if wb.mesh.meshSize <= 1:
+func shouldShardModelParameters(runtime: Runtime): bool =
+  if runtime.mesh.meshSize <= 1:
     return false
-  case wb.strategy.kind
+  case runtime.strategy.kind
   of ppkData:
     false
   of ppkZero:
-    wb.strategy.zeroStage >= 3
+    runtime.strategy.zeroStage >= 3
   of ppkAuto, ppkTensor, ppkPipeline, ppkHybrid, ppkManual:
     true
 
@@ -152,35 +141,35 @@ func largestDivisibleDim(shape: openArray[int]; factor: int): int =
       result = i
       best = dim
 
-proc setupTensor(wb: Workbench; t: Tensor): Tensor =
+proc setupTensor(runtime: Runtime; t: Tensor): Tensor =
   if not t.isEager or t.sharding.isPartitioned or t.sharding.isManual:
     return t
-  if not wb.shouldShardModelParameters:
+  if not runtime.shouldShardModelParameters:
     return t
-  let dim = largestDivisibleDim(t.shape, wb.mesh.meshSize)
+  let dim = largestDivisibleDim(t.shape, runtime.mesh.meshSize)
   if dim < 0:
     return t
   var axes = newSeq[string](t.shape.len)
-  axes[dim] = wb.mesh.axes[0]
-  shardToMesh(t, wb.mesh, initPartitionSpec(axes), wb.processIndex)
+  axes[dim] = runtime.mesh.axes[0]
+  shardToMesh(t, runtime.mesh, initPartitionSpec(axes), runtime.processIndex)
 
-proc setup*[T](wb: var Workbench; model: T): T =
+proc setup*[T](runtime: var Runtime; model: T): T =
   ## Sets up a model for training. Tensor/ZeRO-3/hybrid/auto strategies shard
-  ## eager tensor leaves across the Workbench mesh when a divisible dimension
+  ## eager tensor leaves across the Runtime mesh when a divisible dimension
   ## exists, so parameter storage can exceed one device's memory.
-  let localWb = wb
-  treeMap(model, proc(t: Tensor): Tensor = setupTensor(localWb, t))
+  let localRuntime = runtime
+  treeMap(model, proc(t: Tensor): Tensor = setupTensor(localRuntime, t))
 
 # ---- setup (data) ------------------------------------------------------------
 
-func setup*[T](wb: var Workbench; pipe: Dataset[T]): Dataset[T] =
-  ## Sets up a data pipeline for training. v1: no-op identity.
+func setup*[T](runtime: var Runtime; pipe: Dataset[T]): Dataset[T] =
+  ## Sets up a dataset pipeline for training. v1: no-op identity.
   ## Future phases will add automatic device transfer and distributed sampling.
   pipe
 
 # ---- computeGrads ------------------------------------------------------------
 
-proc computeGrads*[T](wb: Workbench;
+proc computeGrads*[T](runtime: Runtime;
     fn: proc(args: openArray[Tensor]): Tensor {.closure.}; params: T): T =
   ## Computes gradients of scalar-output `fn` w.r.t. `params`.
   ## Returns grads with the same pytree structure as `params`.
@@ -196,16 +185,16 @@ proc computeGrads*[T](wb: Workbench;
 
 # ---- Distributed communication ------------------------------------------------
 
-func distributedSize(wb: Workbench): int =
-  max(1, max(wb.worldSize, wb.mesh.meshSize))
+func distributedSize(runtime: Runtime): int =
+  max(1, max(runtime.worldSize, runtime.mesh.meshSize))
 
-proc requireTraceCollective(wb: Workbench; opName: string) =
-  if wb.distributedSize > 1 and currentMode() != dmTrace:
+proc requireTraceCollective(runtime: Runtime; opName: string) =
+  if runtime.distributedSize > 1 and currentMode() != dmTrace:
     raise newException(TensorError,
       opName & ": multi-process collectives must run under jit/trace")
 
-proc replicaGroup(wb: Workbench; src = 0): seq[int] =
-  let size = wb.distributedSize
+proc replicaGroup(runtime: Runtime; src = 0): seq[int] =
+  let size = runtime.distributedSize
   if src < 0 or src >= size:
     raise newException(TensorError,
       "broadcast: source rank " & $src & " out of range for world size " &
@@ -219,41 +208,41 @@ proc sumComputation(b: var ShBuilder;
     args: openArray[ShValueId]): seq[ShValueId] =
   @[shops.add(b, args[0], args[1])]
 
-proc allGather*(wb: Workbench; t: Tensor): Tensor =
+proc allGather*(runtime: Runtime; t: Tensor): Tensor =
   ## Gathers tensors from all processes along the leading dimension.
-  ## Single-process workbenches return `t` unchanged.
-  if wb.distributedSize <= 1:
+  ## Single-process runtimes return `t` unchanged.
+  if runtime.distributedSize <= 1:
     return t
-  wb.requireTraceCollective("allGather")
+  runtime.requireTraceCollective("allGather")
   var outShape = t.shape
-  outShape[0] *= wb.distributedSize
+  outShape[0] *= runtime.distributedSize
   distOps.allGather([t], allGatherDim = 0, resultShapes = [outShape],
-    replicaGroups = @[wb.replicaGroup()])[0]
+    replicaGroups = @[runtime.replicaGroup()])[0]
 
-proc allReduce*(wb: Workbench; t: Tensor): Tensor =
-  ## Sums `t` across all processes. Single-process workbenches return `t`.
-  if wb.distributedSize <= 1:
+proc allReduce*(runtime: Runtime; t: Tensor): Tensor =
+  ## Sums `t` across all processes. Single-process runtimes return `t`.
+  if runtime.distributedSize <= 1:
     return t
-  wb.requireTraceCollective("allReduce")
-  distOps.allReduce([t], replicaGroups = @[wb.replicaGroup()],
+  runtime.requireTraceCollective("allReduce")
+  distOps.allReduce([t], replicaGroups = @[runtime.replicaGroup()],
     computation = sumComputation)[0]
 
-proc broadcast*(wb: Workbench; t: Tensor; src: int = 0): Tensor =
-  ## Broadcasts `t` from rank `src`. Single-process workbenches return `t`.
-  if wb.distributedSize <= 1:
+proc broadcast*(runtime: Runtime; t: Tensor; src: int = 0): Tensor =
+  ## Broadcasts `t` from rank `src`. Single-process runtimes return `t`.
+  if runtime.distributedSize <= 1:
     return t
-  wb.requireTraceCollective("broadcast")
-  distOps.collectiveBroadcast(t, replicaGroups = @[wb.replicaGroup(src)])
+  runtime.requireTraceCollective("broadcast")
+  distOps.collectiveBroadcast(t, replicaGroups = @[runtime.replicaGroup(src)])
 
-proc barrier*(wb: Workbench) =
+proc barrier*(runtime: Runtime) =
   ## Synchronization hook. PJRT collectives are ordered through traced
   ## programs, so there is no host-side barrier in the single-process
   ## runtime.
   discard
 
-func isGlobalZero*(wb: Workbench): bool =
+func isGlobalZero*(runtime: Runtime): bool =
   ## Returns true if this is the global rank-0 process.
-  wb.globalRank == 0
+  runtime.globalRank == 0
 
 # ---- Save / Load -------------------------------------------------------------
 
@@ -277,17 +266,17 @@ proc loadShardBytes(path: string; item: JsonNode;
     let arr = loadNpy(path / shard["file"].getStr())
     if arr.dtype != dtype:
       raise newException(ValueError,
-        "Workbench.load: shard dtype " & $arr.dtype &
+        "Runtime.load: shard dtype " & $arr.dtype &
           " does not match expected " & $dtype)
     if arr.shape != layout.localShape:
       raise newException(ValueError,
-        "Workbench.load: shard shape " & $arr.shape &
+        "Runtime.load: shard shape " & $arr.shape &
           " does not match expected " & $layout.localShape)
     return arr.data
   raise newException(ValueError,
-    "Workbench.load: checkpoint has no local shard " & $layout.index)
+    "Runtime.load: checkpoint has no local shard " & $layout.index)
 
-proc save*[T](wb: Workbench; path: string; state: T) =
+proc save*[T](runtime: Runtime; path: string; state: T) =
   ## Saves training state to a directory as `.npy` files + `manifest.json`.
   ## `state` is any pytree (model params, optimizer state, etc.).
   ##
@@ -333,11 +322,11 @@ proc save*[T](wb: Workbench; path: string; state: T) =
   manifest["leaf_count"] = %leaves.len
   writeFile(path / "manifest.json", $manifest)
 
-proc load*[T](wb: Workbench; path: string; prototype: T): T =
+proc load*[T](runtime: Runtime; path: string; prototype: T): T =
   ## Loads training state from a checkpoint directory created by `save`.
   ## `prototype` provides the pytree structure for reconstruction.
   ##
-  ## v1: tensors are loaded onto `wb.device`. All dtypes supported by the
+  ## v1: tensors are loaded onto `runtime.device`. All dtypes supported by the
   ## `.npy` reader are handled.
   let manifestStr = readFile(path / "manifest.json")
   let manifest = parseJson(manifestStr)
@@ -351,25 +340,25 @@ proc load*[T](wb: Workbench; path: string; prototype: T): T =
     if item.hasKey("sharded") and item["sharded"].getBool():
       if idx < 0 or idx >= prototypeLeaves.len:
         raise newException(ValueError,
-          "Workbench.load: sharded checkpoint leaf has no prototype")
+          "Runtime.load: sharded checkpoint leaf has no prototype")
       let proto = prototypeLeaves[idx]
       if proto.sharding.isReplicated:
         raise newException(ValueError,
-          "Workbench.load: sharded checkpoint requires a sharded prototype")
+          "Runtime.load: sharded checkpoint requires a sharded prototype")
       let shape = jsonInts(item["shape"])
       leaves[idx] = fromHostByteShards(proto.dtype, shape, proto.sharding,
         proc(layout: ShardLayout; bytes: var seq[byte]) =
           bytes = loadShardBytes(path, item, layout, proto.dtype)
-        , wb.processIndex)
+        , runtime.processIndex)
       continue
     let fname = item["file"].getStr()
     let arr = loadNpy(path / fname)
     if arr.data.len > 0:
-      leaves[idx] = fromHostToDevice(wb.device, unsafeAddr arr.data[0],
+      leaves[idx] = fromHostToDevice(runtime.device, unsafeAddr arr.data[0],
                                      arr.dtype, arr.shape)
     else:
       var dims = newSeq[int64](arr.shape.len)
       for i, dim in arr.shape: dims[i] = int64(dim)
-      let h = transferToDevice(wb.device, nil, arr.dtype, dims, 0)
-      leaves[idx] = initEagerTensor(h, arr.dtype, arr.shape, wb.device)
+      let h = transferToDevice(runtime.device, nil, arr.dtype, dims, 0)
+      leaves[idx] = initEagerTensor(h, arr.dtype, arr.shape, runtime.device)
   treeUnflatten(prototype, leaves)

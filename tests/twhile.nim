@@ -1,6 +1,7 @@
 ## Phase 7b.2 — in-graph control flow: `compare`, `whileLoop`, `fori`.
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)

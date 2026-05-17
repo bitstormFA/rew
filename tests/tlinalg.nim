@@ -1,6 +1,7 @@
 ## Phase 5c \u2014 dot_general / matmul / broadcast_in_dim, IR + dispatch.
 
 import rew
+import rew/dev
 import std/strutils
 
 let TestDevice = cpu(0)

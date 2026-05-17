@@ -3,6 +3,7 @@
 ## the existing primitive vjp rules.
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)

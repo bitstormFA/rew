@@ -1,6 +1,7 @@
 ## Phase 5d \u2014 nn (Linear, ReLU, MSE) end-to-end inside trace mode.
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)
@@ -27,16 +28,16 @@ block lora_merge_trace:
   withTrace ctx, "main", TestDevice:
     let inputs = ctx.traceInputs(@[dtFloat32], @[@[2, 2]])
     let base = Linear(
-      weight: constantF32([2, 3], [
+      weight: param(constantF32([2, 3], [
         1'f32, 2'f32, 3'f32,
         4'f32, 5'f32, 6'f32,
-      ]),
-      bias: constantF32([3], [0.5'f32, 1'f32, -1'f32]),
+      ])),
+      bias: param(constantF32([3], [0.5'f32, 1'f32, -1'f32])),
     )
     var layer = initLoraLinear(initKey(3u64), base, rank = 1,
       alpha = 2'f32)
-    layer.A = constantF32([1, 2], [0.25'f32, -0.5'f32])
-    layer.B = constantF32([3, 1], [2'f32, -1'f32, 0.5'f32])
+    layer.A = param(constantF32([1, 2], [0.25'f32, -0.5'f32]))
+    layer.B = param(constantF32([3, 1], [2'f32, -1'f32, 0.5'f32]))
     let before = layer.forward(inputs[0])
     layer.merge()
     doAssert layer.merged
@@ -46,7 +47,7 @@ block lora_merge_trace:
     doAssert after.shape == @[2, 3]
     layer.merge()
     doAssert layer.base.weight.shape == @[2, 3]
-    ctx.traceReturn([before, after, layer.base.weight])
+    ctx.traceReturn([before, after, layer.base.weight.value])
   let m = ctx.builder.build()
   verify(m)
   let text = emitText(m)

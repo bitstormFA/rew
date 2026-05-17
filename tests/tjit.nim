@@ -1,6 +1,7 @@
 ## Phase 7a \u2014 jit transform: trace + cache + lower.
 
 import rew
+import rew/xla
 import std/[os, strutils]
 
 let TestDevice = cpu(0)

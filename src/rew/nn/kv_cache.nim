@@ -6,6 +6,7 @@
 ## Pure value type following rew's functional nn invariant.
 
 import ../tensor
+import ../pytree
 import ../ops/concat
 
 type
@@ -14,8 +15,8 @@ type
     ##
     ## `kCache` and `vCache` have shape `[batch, numHeads, cachedLen, headDim]`.
     ## On each step, new K/V are concatenated along the seq dim (dim 2).
-    kCache*: Tensor
-    vCache*: Tensor
+    kCache*: Buffer[Tensor]
+    vCache*: Buffer[Tensor]
     batchSize*: int
     numHeads*: int
     headDim*: int
@@ -50,8 +51,8 @@ proc append*(cache: KvCache; kNew, vNew: Tensor): KvCache =
   ## (single new token) or `[batch, numHeads, newLen, headDim]`.
   if cache.cachedLen == 0:
     result = KvCache(
-      kCache: kNew,
-      vCache: vNew,
+      kCache: buffer(kNew),
+      vCache: buffer(vNew),
       batchSize: cache.batchSize,
       numHeads: cache.numHeads,
       headDim: cache.headDim,
@@ -66,8 +67,8 @@ proc append*(cache: KvCache; kNew, vNew: Tensor): KvCache =
         "KvCache.append: total length " & $totalLen &
           " exceeds maxLen " & $cache.maxLen)
     result = KvCache(
-      kCache: concat([cache.kCache, kNew], 2),
-      vCache: concat([cache.vCache, vNew], 2),
+      kCache: buffer(concat([cache.kCache.value, kNew], 2)),
+      vCache: buffer(concat([cache.vCache.value, vNew], 2)),
       batchSize: cache.batchSize,
       numHeads: cache.numHeads,
       headDim: cache.headDim,
@@ -133,8 +134,8 @@ proc append*(cache: SlidingWindowKvCache; kNew, vNew: Tensor):
     starts[2] = dropLen
     limits[2] = totalLen
     full = KvCache(
-      kCache: slice(full.kCache, starts, limits, strides),
-      vCache: slice(full.vCache, starts, limits, strides),
+      kCache: buffer(slice(full.kCache, starts, limits, strides)),
+      vCache: buffer(slice(full.vCache, starts, limits, strides)),
       batchSize: full.batchSize,
       numHeads: full.numHeads,
       headDim: full.headDim,

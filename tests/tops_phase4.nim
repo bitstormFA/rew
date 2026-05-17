@@ -1,6 +1,7 @@
 ## Phase 4 — high-level op coverage via the dispatcher (trace mode).
 
 import rew
+import rew/dev
 import std/strutils
 
 let TestDevice = cpu(0)

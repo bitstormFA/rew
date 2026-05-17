@@ -18,14 +18,18 @@ JAX library, and explicit about devices, RNG, compilation, and state.
 
 REW has three public import tiers.
 
-- `import rew` is the user-level surface: tensors, devices, ops, `nn`, `optim`,
-  `data`, `train`, checkpoints, typed transforms, and the coherent training
-  vocabulary in this document.
+- `import rew` is the user-level surface: tensors, devices, ops, host/device
+  transfer helpers, `grad`/`vjp`, `vmap` and control-flow combinators, `nn`,
+  `optim`, `data`, `train`, checkpoints, and the coherent training vocabulary
+  in this document. It must not expose raw JIT handles, StableHLO builders,
+  OpenXLA manifests, dispatch mutation, VJP registration, or PJRT/plugin
+  internals.
 - `import rew/xla` is the compiler surface: StableHLO, OpenXLA helpers, raw
   `jit`, lowering, HLO dumps, and other tools for inspecting generated programs.
 - `import rew/dev` is the extension surface: VJP registration, primitive op
-  extension hooks, eager dispatch internals, PJRT/plugin details, and manifest
-  tooling.
+  extension hooks, eager dispatch internals, and plugin target/manifest
+  tooling. Raw PJRT C modules remain specialist imports under `rew/pjrt/*` to
+  preserve the PJRT layer boundary.
 
 New high-level APIs should enter through `import rew`. New compiler or
 extension APIs should be placed under `rew/xla` or `rew/dev` instead of leaking
@@ -41,21 +45,24 @@ The public language is built from a small set of value types.
 - `Buffer[T]` marks non-trainable state that still belongs to the model or
   training run. BatchNorm running statistics, RNG-derived layer state, and other
   device/checkpoint state should live here.
-- Plain tensor fields may remain trainable for compatibility while the API is
-  settling, but new stateful designs should prefer `Param[Tensor]` or
-  `Buffer[Tensor]` when the distinction matters.
+- Bare `Tensor` leaves may appear in batches, metrics, temporary results, or
+  other structured values. They are structural pytree leaves, not trainable
+  model parameters. Model state must wrap trainable tensors in `Param[Tensor]`
+  and non-trainable state in `Buffer[Tensor]`.
 - Normal non-tensor fields are static config. They are part of the value object
   but not optimizer leaves.
 - `Runtime` owns execution policy: device, mesh or sharding policy, precision,
-  key stream, compile policy, and checkpoint policy. It replaces the old
-  Workbench name in new public language.
-- `TrainState[M, O, S]` owns model value, optimizer transform, optimizer state,
-  global step, and key. It is the canonical state passed through training.
+  compile policy, and checkpoint policy.
+- `TrainState[M]` owns model value, gradient transform, optimizer state, global
+  step, and key. It is the canonical state passed through training. Optimizer
+  transform and state are not separate public type parameters; they use the
+  `GradientTransform` composition language.
 - `StepResult[S]` is the canonical compiled-step result. It returns the next
   state plus tensor metrics that can be observed or logged outside compiled
   regions.
-- `Dataset[T]` yields arbitrary user batch pytrees. `DataSplits[T]` groups
-  train/validation/test datasets.
+- `Dataset[T]` is the value object for a Dataset Pipeline: a lazy,
+  chainable manipulation flow over samples or batches.
+- `DataSplits[T]` groups train/validation/test datasets.
 - `Trainer` is an orchestration wrapper around the same `Runtime`, `TrainState`,
   and step functions users can run manually.
 
@@ -101,18 +108,19 @@ Advanced custom-step mode:
 
 ```nim
 proc trainStep(
-    state: TrainState[Mnist, AdamW, AdamWState];
+    state: TrainState[Mnist];
     batch: Batch;
     ctx: CallCtx
-): StepResult[TrainState[Mnist, AdamW, AdamWState]] =
-  let (loss, grads) = valueAndGrad(lossFn)(state.model, batch, ctx)
-  let nextState = applyUpdates(state, grads)
-  StepResult(state: nextState, metrics: {"loss": loss}.toTable)
+): StepResult[TrainState[Mnist]] =
+  discard ctx
+  compiled.call(state, batch)
 ```
 
 `compileTrainStep` is the high-level compile boundary. It may internally use
 raw `jit`, but public examples and trainer code should expose typed state and
-batch arguments. No raw JitFn should appear in new high-level examples.
+batch arguments. `CompiledTrainStep` must not expose its raw `JitFunction`
+handle as an exported field. No raw JitFn should appear in new high-level
+examples.
 
 Raw `jit`, HLO dumping, and lowering are still important. They belong in
 `rew/xla` and in lower-level implementation code.
@@ -156,7 +164,8 @@ Compiled steps must be cached by signature. Trainer must not create a fresh raw
 Data, metrics, and checkpoints should preserve user structure instead of forcing
 everything through framework-specific records.
 
-- `Dataset[T]` yields arbitrary batch pytrees.
+- `Dataset[T]` yields arbitrary batch pytrees and carries Dataset Pipeline
+  transforms.
 - `DataSplits[T]` groups train/validation/test streams.
 - Data helpers such as `collate`, `prefetch`, `toDevice(runtime)`, and
   deterministic per-epoch shuffling should preserve `T`.
@@ -174,8 +183,8 @@ Stateful layers should make state visible in the value tree.
 - Non-trainable mutable state is `Buffer[Tensor]`.
 - Calls that update state should return the updated model or updated state as
   part of the typed step result.
-- Dropout receives randomness through `CallCtx` or explicit keys. It should not
-  read a global RNG.
+- Dropout receives explicit keys from `TrainState` or caller-owned state. It
+  should not read a global RNG.
 - BatchNorm running statistics live in buffers and are updated through the same
   typed step state path as the rest of training.
 
@@ -184,10 +193,9 @@ Stateful layers should make state visible in the value tree.
 REW is unreleased. Backward compatibility is not a reason to preserve a muddled
 high-level API. Prefer one coherent language over adapter layers.
 
-When the old language conflicts with this document:
+When old language conflicts with this document:
 
-- Rename toward the new vocabulary (`Workbench` to `Runtime`, `DataPipe` to
-  `DataSplits`, closed `OptimizerKind` to optimizer transforms).
+- Rename toward the vocabulary in this document.
 - Update examples to the canonical typed-step shape.
 - Keep raw compiler features available, but move them to the compiler tier.
 - Update tests and lints at the same time as the API change.
@@ -199,6 +207,8 @@ Before merging a high-level API change, check:
 - Does `import rew` expose user-level concepts without compiler/dev internals?
 - Does the code use `Param[Tensor]`, `Buffer[Tensor]`, and pytrees where state
   semantics matter?
+- Are all trainable model/layer tensors explicit `Param[Tensor]` leaves rather
+  than bare `Tensor` fields?
 - Is training expressible as either a loss function or typed custom
   `trainStep`?
 - Are optimizer features implemented as `GradientTransform` composition?

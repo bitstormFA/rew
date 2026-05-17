@@ -3,7 +3,6 @@
 import std/[options, strutils]
 import ../callback
 import ../context
-import ../../data/sample
 import ../../tensor
 
 type
@@ -32,13 +31,13 @@ func toCallback*(pb: ProgressBar): Callback =
   ## Converts the ProgressBar config into a `Callback`.
   let state = ProgressState(epochStartStep: 0)
   result = initCallback("ProgressBar")
-  result.onTrainEpochStart = some(proc(trainer, task: pointer;
-      ctx: var TrainContext) {.closure.} =
+  result.onTrainEpochStart = some(proc(ctx: var TrainContext) {.closure.} =
     state.epochStartStep = ctx.globalStep
   )
-  result.onTrainBatchEnd = some(proc(trainer, task: pointer; batch: Batch;
-      batchIdx: int; loss: Tensor; ctx: var TrainContext)
+  result.onTrainBatchEnd = some(proc(batchIdx: int; loss: Tensor;
+      ctx: var TrainContext)
       {.closure.} =
+    discard loss
     if ctx.globalStep mod pb.refreshRate != 0:
       return
     let stepInEpoch = ctx.globalStep - state.epochStartStep
@@ -51,8 +50,8 @@ func toCallback*(pb: ProgressBar): Callback =
     except IOError:
       discard
   )
-  result.onTrainEpochEnd = some(proc(trainer, task: pointer;
-      ctx: var TrainContext) {.closure.} =
+  result.onTrainEpochEnd = some(proc(ctx: var TrainContext;
+      saveCheckpoint: CheckpointWriter) {.closure.} =
     # Emit epoch summary
     var parts: seq[string] = @[]
     for m in ctx.epochMetrics:

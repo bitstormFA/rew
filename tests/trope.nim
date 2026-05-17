@@ -1,6 +1,7 @@
 ## Tests for Rotary Position Encodings (RoPE + YaRN + ALiBi).
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)

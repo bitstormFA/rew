@@ -43,8 +43,8 @@ proc initBatchNorm1d*(numFeatures: int; momentum: float32 = 0.1'f32;
   let ones = onesF32(numFeatures)
   let zeros = zerosF32(numFeatures)
   BatchNorm1d(
-    gamma: constantF32([numFeatures], ones),
-    beta: constantF32([numFeatures], zeros),
+    gamma: param(constantF32([numFeatures], ones)),
+    beta: param(constantF32([numFeatures], zeros)),
     runningMean: buffer(constantF32([numFeatures], zeros)),
     runningVar: buffer(constantF32([numFeatures], ones)),
     momentum: momentum,
@@ -60,8 +60,8 @@ proc initBatchNorm2d*(numFeatures: int; momentum: float32 = 0.1'f32;
   let ones = onesF32(numFeatures)
   let zeros = zerosF32(numFeatures)
   BatchNorm2d(
-    gamma: constantF32([numFeatures], ones),
-    beta: constantF32([numFeatures], zeros),
+    gamma: param(constantF32([numFeatures], ones)),
+    beta: param(constantF32([numFeatures], zeros)),
     runningMean: buffer(constantF32([numFeatures], zeros)),
     runningVar: buffer(constantF32([numFeatures], ones)),
     momentum: momentum,
@@ -87,10 +87,10 @@ proc forward*(layer: var BatchNorm1d; x: Tensor; training: bool = true): Tensor 
     let momB = broadcastTo(mom, layer.runningMean.value.shape, bdims)
     let oneMinusMomB = broadcastTo(oneMinusMom,
       layer.runningMean.value.shape, bdims)
-    layer.runningMean = add(mul(oneMinusMomB, layer.runningMean),
-                             mul(momB, batchMean))
-    layer.runningVar = add(mul(oneMinusMomB, layer.runningVar),
-                            mul(momB, batchVar))
+    layer.runningMean = buffer(add(mul(oneMinusMomB, layer.runningMean),
+      mul(momB, batchMean)))
+    layer.runningVar = buffer(add(mul(oneMinusMomB, layer.runningVar),
+      mul(momB, batchVar)))
     normOut
   else:
     batchNormInference(x, layer.gamma, layer.beta,
@@ -116,10 +116,10 @@ proc forward*(layer: var BatchNorm2d; x: Tensor; training: bool = true): Tensor 
     let momB = broadcastTo(mom, layer.runningMean.value.shape, bdims)
     let oneMinusMomB = broadcastTo(oneMinusMom,
       layer.runningMean.value.shape, bdims)
-    layer.runningMean = add(mul(oneMinusMomB, layer.runningMean),
-                             mul(momB, batchMean))
-    layer.runningVar = add(mul(oneMinusMomB, layer.runningVar),
-                            mul(momB, batchVar))
+    layer.runningMean = buffer(add(mul(oneMinusMomB, layer.runningMean),
+      mul(momB, batchMean)))
+    layer.runningVar = buffer(add(mul(oneMinusMomB, layer.runningVar),
+      mul(momB, batchVar)))
     normOut
   else:
     batchNormInference(x, layer.gamma, layer.beta,

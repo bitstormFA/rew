@@ -3,7 +3,6 @@
 import std/[options, strutils]
 import ../callback
 import ../context
-import ../../data/sample
 import ../../tensor
 
 type
@@ -21,9 +20,11 @@ func initLogMonitor*(logEvery: int = 50): LogMonitor =
 func toCallback*(lm: LogMonitor): Callback =
   ## Converts the LogMonitor config into a `Callback`.
   result = initCallback("LogMonitor")
-  result.onTrainBatchEnd = some(proc(trainer, task: pointer; batch: Batch;
-      batchIdx: int; loss: Tensor; ctx: var TrainContext)
+  result.onTrainBatchEnd = some(proc(batchIdx: int; loss: Tensor;
+      ctx: var TrainContext)
       {.closure.} =
+    discard batchIdx
+    discard loss
     if ctx.globalStep mod lm.logEvery != 0:
       return
     var parts: seq[string] = @[]

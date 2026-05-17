@@ -1,6 +1,7 @@
 ## Explicit no-gradient registry entries.
 
 import rew
+import rew/dev
 
 block register_no_grad_policy:
   registerNoGrad("test.token_op")

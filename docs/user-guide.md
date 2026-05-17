@@ -39,11 +39,11 @@ Key design decisions:
   concurrently.
 - **No external Nim dependencies.** Everything runs on Nim's stdlib.
 
-> **High-level API status.** This guide still contains historical examples that
-> mention `Workbench`, `DataPipe`, closed optimizer configs, or raw `JitFn`
-> training loops. During the unreleased redesign, treat
-> [docs/high-level-api.md](high-level-api.md) as the authoritative contract and
-> update older guide sections toward that vocabulary when touching them.
+> **Import tiers.** Use `import rew` for everyday tensor, model, data,
+> optimizer, checkpoint, and training code. Use `import rew/xla` for raw
+> `jit`, StableHLO/OpenXLA inspection, lowering, and HLO dumps. Use
+> `import rew/dev` when adding primitive ops, VJP policies, VJP rules, or
+> dispatch/eager internals.
 
 ---
 
@@ -228,8 +228,8 @@ src/rew/autograd/    VJP registry, gradient tape, grad/vjp/valueAndGrad
 src/rew/transform/   jit trace-and-cache, control-flow combinators, vmap
 src/rew/nn/          Functional layers, activations, losses
 src/rew/optim/       Functional optimizers, LR schedulers, gradient clipping
-src/rew/data/        Lazy data pipeline (DatasetFn, transforms, batching)
-src/rew/train/       Two-tier training API (Workbench + Trainer)
+src/rew/data/        Lazy dataset pipeline (DatasetFn, transforms, batching)
+src/rew/train/       Two-tier training API (Runtime + Trainer)
 ```
 
 `src/rew.nim` is the umbrella module — it re-exports the entire public API.
@@ -817,10 +817,10 @@ let y = forward(rope, x, offset = 0)
 
 ```nim
 type QloraLinear = object
-  dequantizedWeight: Tensor   # frozen base weight
-  bias: Tensor                # frozen bias
-  A: Tensor                   # trainable, shape [rank, inFeatures]
-  B: Tensor                   # trainable, shape [outFeatures, rank]
+  dequantizedWeight: Buffer[Tensor] # frozen base weight
+  bias: Buffer[Tensor]              # frozen bias
+  A: Param[Tensor]                  # trainable, shape [rank, inFeatures]
+  B: Param[Tensor]                  # trainable, shape [outFeatures, rank]
   rank: int
   alpha: float32
   scaling: float32            # alpha / rank
@@ -910,6 +910,13 @@ echo "loss = ", item(vg.value, float32)
 ```
 
 ### 5.8 jit Compilation
+
+Raw `jit` is a compiler-tier API:
+
+```nim
+import rew
+import rew/xla
+```
 
 The `jit` transform traces a function and cache-compiles it for a specific
 input signature:
@@ -1080,9 +1087,9 @@ let sched = initReduceOnPlateau(factor = 0.5'f32, patience = 5)
 let newLr = step(sched, currentLr, epoch)
 ```
 
-### 5.10 Data Pipeline
+### 5.10 Dataset Pipeline
 
-The data pipeline provides lazy, chainable datasets with a tf.data-style API.
+The Dataset Pipeline provides lazy, chainable datasets with a tf.data-style API.
 
 #### Core Types
 
@@ -1211,15 +1218,15 @@ saveNpy("output.npy", arr)              # write back
 Use `loadNpy` for loading MNIST-style datasets. The reader supports
 `uint8`, `int64`, `float32`, and common dtypes.
 
-#### Checkpointing with Workbench
+#### Checkpointing with Runtime
 
 ```nim
 # Save model state
-wb.save("checkpoints/epoch_5", (model, opt, optState))
+runtime.save("checkpoints/epoch_5", (model, opt, optState))
 
 # Load model state
 let prototype = (model, opt, optState)
-let (loadedModel, loadedOpt, loadedState) = wb.load(
+let (loadedModel, loadedOpt, loadedState) = runtime.load(
   "checkpoints/epoch_5", prototype)
 ```
 
@@ -1234,113 +1241,91 @@ let tensors = loadSafeTensors("model.safetensors")
 
 ### 5.13 Training API
 
-Rew provides two tiers of training API:
+Rew provides two training layers:
 
-| Tier | Class | You own... | Use when... |
-|------|-------|-----------|-------------|
-| 1 | `Workbench` | The training loop | You want full control (research, GANs, RL) |
-| 2 | `Trainer` | The `Task` (step logic) | You want the framework to manage the loop |
+| Layer | Type | You own... | Use when... |
+|-------|------|-----------|-------------|
+| Runtime | `Runtime` | The loop and compile boundary | You want full control |
+| Trainer | `Trainer` | A typed loss or typed custom step | You want the framework to manage the loop |
 
-#### Tier 1: Workbench
+#### Runtime
+
+`Runtime` is the explicit execution context. Use it when you want to own the
+loop while still using typed training state and compiled steps.
 
 ```nim
 import rew
 import rew/train
 
-let wb = initWorkbench(akCpu)
+let runtime = initRuntime(akCpu)
 seedEverything(42)
 
-# Build model, optimizer, data as usual
-var (fc1, fc2) = initModelEager(d, wb.nextKey())
-let lr = scalarF32(d, 0.05'f32)
+var state = initTrainState(initModel(runtime.nextKey()), sgd(lr))
+var step = compileTrainStep(loss, state, runtime,
+  donate = paramsOf(state.model))
 
-# jit-compiled training step (you write it)
-let trainJ = jit(trainFn, "mnist_step", donateArgs = [0, 1, 2, 3])
-
-# Training loop (you own it!)
 for epoch in 0 ..< 10:
-  var epochLoss = 0.0'f32
-  for step in 0 ..< 100:
-    let (bx, by) = syntheticBatch(d, wb.nextKey())
-    let outs = trainJ.call([
-      fc1.weight, fc1.bias, fc2.weight, fc2.bias, bx, by, lr])
-    fc1 = Linear(weight: outs[1], bias: outs[2])
-    fc2 = Linear(weight: outs[3], bias: outs[4])
-    epochLoss += item(outs[0], float32)
-  echo "epoch ", epoch, ": loss = ", epochLoss / 100.0'f32
+  for batch in trainDs:
+    state = step(state, batch).state
 
-# Save checkpoint
-wb.save("/tmp/checkpoint", (fc1, fc2))
+runtime.save("/tmp/checkpoint", state)
 ```
 
-Workbench provides:
+Runtime provides:
 
 ```nim
-proc initWorkbench(accelerator = akAuto, devices = 1, precision = prFloat32): Workbench
-proc setup[T](wb: var Workbench, model: T): T
-proc setup[T](wb: var Workbench, pipe: Dataset[T]): Dataset[T]
-proc computeGrads[T](wb: Workbench,
+proc initRuntime(accelerator = akAuto, devices = 1, precision = prFloat32): Runtime
+proc setup[T](runtime: var Runtime, model: T): T
+proc setup[T](runtime: var Runtime, ds: Dataset[T]): Dataset[T]
+proc computeGrads[T](runtime: Runtime,
     fn: proc(args: openArray[Tensor]): Tensor, params: T): T
-proc allReduce(wb: Workbench, t: Tensor): Tensor
-proc isGlobalZero(wb: Workbench): bool
-proc nextKey(wb: var Workbench): Key
-proc save[T](wb: Workbench, path: string, state: T)
-proc load[T](wb: Workbench, path: string, prototype: T): T
+proc allReduce(runtime: Runtime, t: Tensor): Tensor
+proc isGlobalZero(runtime: Runtime): bool
+proc nextKey(runtime: var Runtime): Key
+proc save[T](runtime: Runtime, path: string, state: T)
+proc load[T](runtime: Runtime, path: string, prototype: T): T
 proc seedEverything(seed: int)
 ```
 
-#### Tier 2: Trainer
+#### Trainer
 
-The Trainer owns the training loop. You define:
+The Trainer owns iteration, compiled-step caching, optimizer state, validation,
+metrics, and callbacks. You provide:
 
-1. A **Task type** with `trainingStep` and `configureOptimizers` methods
-2. A **DataPipe** with train/val/test datasets
-3. Optional **callbacks** and lifecycle hooks
+1. A `TrainState[M]`
+2. A typed `loss(model, batch, ctx): Tensor` or typed custom step
+3. `DataSplits[B]` with train/val/test datasets
+4. Optional callbacks
 
 ```nim
-type MnistTask = object
-  fc1, fc2: Linear
-  opt: OptimizerConfig
-  key: Key
-  lr: Tensor
-  trainJ: JitFunction
+type MnistBatch = object
+  x: Tensor
+  y: Tensor
 
-# Required: defines one forward+backward step
-proc trainingStep(t: var MnistTask, batch: Batch, batchIdx: int,
-                  ctx: var TrainContext): Tensor =
-  let (bx, by) = toTensors(t.lr.device, batch, numClasses = 10)
-  let outs = t.trainJ.call([
-    t.fc1.weight, t.fc1.bias, t.fc2.weight, t.fc2.bias,
-    bx, by, t.lr])
-  t.fc1 = Linear(weight: outs[1], bias: outs[2])
-  t.fc2 = Linear(weight: outs[3], bias: outs[4])
-  ctx.log("train/loss", item(outs[0], float32),
-          onStep = true, onEpoch = true, progBar = true)
-  outs[0]
+proc loss(model: Mnist; batch: MnistBatch; ctx: CallCtx): Tensor =
+  discard ctx
+  softmaxCrossEntropy(forward(model, batch.x), batch.y)
 
-# Required: returns optimizer configuration
-proc configureOptimizers(t: MnistTask): OptimizerConfig =
-  t.opt
-
-# Optional: validation step
-proc validationStep(t: var MnistTask, batch: Batch, batchIdx: int,
-                    ctx: var TrainContext): Tensor =
-  let (bx, by) = toTensors(t.lr.device, batch, numClasses = 10)
-  let logits = forward(t.fc2, relu(forward(t.fc1, bx)))
-  let loss = softmaxCrossEntropy(logits, by)
-  ctx.log("val/loss", item(loss, float32))
-  loss
-
-# Usage
-var task = MnistTask(...)
-let data = initDataPipe(trainDs)
+var state = initTrainState(initMnist(key), adamw(lr = scalarF32(d, 1e-3)))
+let data = initDataSplits(trainDs, val = some(valDs))
 var trainer = initTrainer(maxEpochs = 10, accelerator = akCpu)
 trainer.callbacks = @[
   initCheckpoint(monitor = "val/loss").toCallback(),
   initEarlyStopping(monitor = "val/loss", patience = 3).toCallback(),
-  initProgressBar().toCallback(),
 ]
-trainer.fit(task, data)
+trainer.fit(state, data, loss)
+```
+
+Custom logic lives in a typed step when a scalar loss is not enough:
+
+```nim
+let customStep: TrainStepFn[Mnist, MnistBatch] =
+  proc(state: TrainState[Mnist]; batch: MnistBatch;
+      ctx: CallCtx): StepResult[TrainState[Mnist]] =
+    discard ctx
+    compiled.call(state, batch)
+
+trainer.fit(state, data, customStep)
 ```
 
 **Trainer fields:**
@@ -1352,71 +1337,10 @@ type Trainer = object
   accelerator: Accelerator
   devices: int
   precision: Precision
-  logEvery: int          # log every N steps
-  valInterval: Option[int]  # validate every N steps
-  gradientClipNorm: Option[float32]
-  gradientClipVal: Option[float32]
-  accumulateGradBatches: int
-  automaticOptimization: bool
-  jit: bool              # required for distributed Trainer execution
-  donateParams: bool     # donate parameter buffers during automatic updates
+  logEvery: int
+  valInterval: Option[int]
+  donateParams: bool
   callbacks: seq[Callback]
-```
-
-**Lifecycle hooks** (all optional, compile-time checked with `when compiles`):
-
-```nim
-proc onFitStart(task: var T, ctx: var TrainContext)
-proc onFitEnd(task: var T, ctx: var TrainContext)
-proc onTrainEpochStart(task: var T, ctx: var TrainContext)
-proc onTrainEpochEnd(task: var T, ctx: var TrainContext)
-proc onTrainBatchStart(task: var T, batch: Batch, batchIdx: int, ctx: var TrainContext)
-proc onTrainBatchEnd(task: var T, batch: Batch, batchIdx: int, ctx: var TrainContext, loss: Tensor)
-proc onValidationStart(task: var T, ctx: var TrainContext)
-proc onValidationEnd(task: var T, ctx: var TrainContext)
-proc onBeforeBackward(task: var T, loss: Tensor, ctx: var TrainContext)
-proc onAfterBackward(task: var T, grads: auto, ctx: var TrainContext)
-proc onBeforeOptimizerStep(task: var T, optIdx: int, ctx: var TrainContext)
-proc onAfterOptimizerStep(task: var T, optIdx: int, ctx: var TrainContext)
-proc onSaveCheckpoint(task: var T, path: string, ctx: var TrainContext)
-proc onLoadCheckpoint(task: var T, path: string, ctx: var TrainContext)
-```
-
-**Automatic optimization mode**:
-
-```nim
-proc parameters(t: Task): Params
-proc setParameters(t: var Task, params: Params)
-proc trainingInputs(t: var Task, batch: Batch, batchIdx: int,
-                    ctx: var TrainContext): seq[Tensor]
-proc trainingLoss(t: var Task, params: Params,
-                  inputs: openArray[Tensor], batchIdx: int): Tensor
-```
-
-With `automaticOptimization = true`, the Trainer owns `valueAndGrad`,
-gradient accumulation, gradient clipping, optimizer state, scheduler stepping,
-and parameter writeback. `trainingInputs` performs host-to-device conversion
-for the batch; `trainingLoss` must be tensor-only so it can be traced and
-executed through PJRT.
-
-**Manual optimization mode** (current v1 behavior):
-
-```nim
-var trainer = initTrainer(maxEpochs = 50, automaticOptimization = false)
-
-proc trainingStep(t: var GanTask, batch: Batch, idx: int,
-                  ctx: var TrainContext): Tensor =
-  # You own the optimization step. Usually this means calling one or more
-  # JitFunctions that run forward + vjp + parameter update.
-  let dOut = t.discriminatorStep.call(discriminatorArgs(t, batch))
-  t.discriminator = unpackDiscriminator(dOut)
-
-  let gOut = t.generatorStep.call(generatorArgs(t, batch))
-  t.generator = unpackGenerator(gOut)
-
-  ctx.log("d_loss", dOut[0].item(float32), onStep = true)
-  ctx.log("g_loss", gOut[0].item(float32), onStep = true)
-  dOut[0]
 ```
 
 **Built-in callbacks:**
@@ -1425,417 +1349,49 @@ proc trainingStep(t: var GanTask, batch: Batch, idx: int,
 |----------|---------|
 | `Checkpoint` | Save/restore model checkpoints (top-K, last, monitored metric) |
 | `EarlyStopping` | Stop training when monitored metric stops improving |
-| `ProgressBar` | Terminal progress bar with loss/metrics |
-| `LogMonitor` | Print metric summaries to stdout |
+| `ProgressBar` | Terminal progress display for `Batch`-based datasets |
+| `LogMonitor` | Print step-level metrics for `Batch`-based datasets |
 
-### 5.14 Tutorial: CNN MNIST on CUDA with Trainer
+### 5.14 Tutorial: Typed MNIST with Trainer
 
-This section builds a small MNIST CNN using the highest-level training surface
-currently available in rew: `Trainer` plus `DataPipe`, callbacks, task hooks,
-functional layers, and a `jit`-compiled forward/backward/update step.
+The compact typed Trainer example lives in `examples/mnist_trainer.nim`. It
+builds a value-model, wraps trainable leaves in `Param[Tensor]`, creates a
+`TrainState`, prepares `DataSplits`, and calls `trainer.fit(state, data, loss)`.
 
-In v0.2.0 the Trainer owns epochs, batch iteration, validation, hooks,
-callbacks, logging, early stopping, and checkpoint scheduling. Optimization is
-still manual: your `trainingStep` calls a `JitFunction` that computes the loss,
-VJP gradients, and updated parameters. That keeps the hot path fused on CUDA
-while the Python-like training boilerplate stays in the Trainer.
-
-#### Step 1: Fetch CUDA and Start the Runtime
-
-Fetch the matching PJRT plugin once:
-
-```bash
-bau fetch cuda12
-# or, after installing rew:
-rew_fetch cuda12
-```
-
-Use `tCuda13` and `bau fetch cuda13` or `rew_fetch cuda13` instead when
-your environment is on CUDA 13. The example below pins CUDA 12 explicitly:
-
-```nim
-import std/[math, options, os, strformat]
-import rew
-import rew/train
-
-const
-  Backend = tCuda12
-  ImageSide = 28
-  ImagePixels = ImageSide * ImageSide
-  NumClasses = 10
-  Conv1Channels = 8
-  Conv2Channels = 16
-  HiddenDim = 32
-  BatchSize = 64
-  LearningRate = 0.05'f32
-  ShuffleBuffer = 10000
-  ParamCount = 8
-
-proc initRuntime(): Device =
-  let d = initDevice(Backend, 0)
-  setDefaultDevice(d)
-  installEagerBackend()
-  d
-```
-
-`setDefaultDevice` makes factory helpers and `Workbench` load back onto the
-same CUDA target. `installEagerBackend` wires tensor ops to PJRT; the plugin is
-loaded lazily on the first real device operation.
-
-#### Step 2: Define the CNN as a Value Type
-
-Layers are plain values. The model is just an object whose tensor leaves can be
-flattened, updated, saved, and restored by the generic pytree walker.
+The important shape is:
 
 ```nim
 type
-  MnistCnn = object
-    conv1, conv2: Conv2d
-    fc1, fc2: Linear
+  MnistMlp = object
+    fc1: Linear
+    fc2: Linear
 
-proc initLinearOnDevice(d: Device; key: Key;
-    inFeatures, outFeatures: int): Linear =
-  let bound = sqrt(1.0'f32 / float32(inFeatures))
-  let w = uniformF32(key, inFeatures * outFeatures, -bound, bound)
-  let b = newSeq[float32](outFeatures)
-  Linear(
-    weight: fromHostF32(d, w, [inFeatures, outFeatures]),
-    bias: fromHostF32(d, b, [outFeatures]),
-  )
+  MnistBatch = object
+    x: Tensor
+    y: Tensor
 
-proc initConv2dOnDevice(d: Device; key: Key;
-    inChannels, outChannels, kernelSize: int): Conv2d =
-  let fanIn = inChannels * kernelSize * kernelSize
-  let bound = sqrt(1.0'f32 / float32(fanIn))
-  let w = uniformF32(key,
-    outChannels * inChannels * kernelSize * kernelSize, -bound, bound)
-  let b = newSeq[float32](outChannels)
-  Conv2d(
-    weight: fromHostF32(d, w,
-      [outChannels, inChannels, kernelSize, kernelSize]),
-    bias: fromHostF32(d, b, [outChannels]),
-    stride: [1, 1],
-    padding: [[1, 1], [1, 1]],
-    dilation: [1, 1],
-  )
+proc loss(model: MnistMlp; batch: MnistBatch; ctx: CallCtx): Tensor =
+  discard ctx
+  softmaxCrossEntropy(forward(model, batch.x), batch.y)
 
-proc initMnistCnn(d: Device; key: Key): MnistCnn =
-  let keys = split(key, 4)
-  MnistCnn(
-    conv1: initConv2dOnDevice(d, keys[0], 1, Conv1Channels, 3),
-    conv2: initConv2dOnDevice(d, keys[1],
-      Conv1Channels, Conv2Channels, 3),
-    fc1: initLinearOnDevice(d, keys[2],
-      Conv2Channels * 7 * 7, HiddenDim),
-    fc2: initLinearOnDevice(d, keys[3], HiddenDim, NumClasses),
-  )
+let lr = scalarF32(d, 0.05'f32)
+var state = initTrainState(initMnistMlp(d, initKey(42)), sgd(lr))
+let data = initDataSplits(fromSeq(batches))
 
-proc forward(model: MnistCnn; x: Tensor): Tensor =
-  let h1 = relu(forward(model.conv1, x))
-  let p1 = maxPool2d(h1, [2, 2], [2, 2])
-  let h2 = relu(forward(model.conv2, p1))
-  let p2 = maxPool2d(h2, [2, 2], [2, 2])
-  let flat = flatten(p2)
-  let h3 = relu(forward(model.fc1, flat))
-  forward(model.fc2, h3)
-```
-
-The input layout is NHWC: `[batch, height, width, channels]`. The convolution
-weights use OIHW: `[outChannels, inChannels, kernelH, kernelW]`.
-
-The helper constructors transfer initialized arrays to CUDA with
-`fromHostF32`. This is deliberate: the public `initLinear` and `initConv2d`
-construct trace-mode constants, while training state must start as eager CUDA
-buffers.
-
-#### Step 3: Load MNIST Through the Data Pipeline
-
-`fromNpy` expects two files per split:
-
-- `<split>_images.npy`: `uint8` or `float32`, shape `[N, 784]` or
-  `[N, 28, 28]`
-- `<split>_labels.npy`: `uint8`, `int32`, or `int64`, shape `[N]`
-
-The source loads the arrays into host memory once, converts images to
-`float32`, normalizes `uint8` pixels to `[0, 1]`, and yields one `Sample` at a
-time. A `Dataset` is a value object around a `DatasetFn`: each call to
-`source()` creates a fresh closure iterator, so one call is one epoch.
-
-```nim
-proc toNHWC(s: Sample): Sample =
-  Sample(data: s.data, dataShape: @[ImageSide, ImageSide, 1], label: s.label)
-
-proc toBatch(samples: seq[Sample]): Batch =
-  collate(samples)
-
-proc mnistDataset(dir, split: string; key: Key;
-    shuffleData: bool): Dataset[Batch] =
-  var samples = fromNpy(
-      dir / (split & "_images.npy"),
-      dir / (split & "_labels.npy"))
-    .map(toNHWC)
-
-  if shuffleData:
-    samples = samples.shuffle(key, bufferSize = ShuffleBuffer)
-
-  result = samples
-    .batch(BatchSize, dropLast = split == "train")
-    .map(toBatch)
-```
-
-The pipeline stages are:
-
-- `fromNpy`: file-backed host samples, loaded eagerly into memory.
-- `map(toNHWC)`: reshape sample metadata to `[28, 28, 1]`.
-- `shuffle(key, bufferSize)`: deterministic reservoir shuffle using a rew
-  `Key`; split or fold keys when you want different epoch orders.
-- `batch(BatchSize)`: collect `seq[Sample]`.
-- `map(toBatch)`: `collate` stacks samples into one `Batch`.
-- `toTensors(d, batch, NumClasses)`: inside the training step, transfer the
-  batch to CUDA and build one-hot labels of shape `[batch, 10]`.
-
-For background prefetching, add `.prefetch(2)` after `.map(toBatch)` and
-compile with `--threads:on`. The current prefetch implementation materializes
-the source before starting its producer thread, so it is best for in-memory
-sources like MNIST.
-
-#### Step 4: Build the Fused Training Step
-
-The JIT function receives the current parameter leaves, batch tensors, and
-learning rate. It reconstructs a model from leaves, computes
-`softmaxCrossEntropy`, runs a VJP over the eight trainable tensors, and returns
-the scalar loss plus updated parameter leaves.
-
-```nim
-proc modelFromLeaves(leaves: openArray[Tensor]): MnistCnn =
-  MnistCnn(
-    conv1: Conv2d(weight: leaves[0], bias: leaves[1],
-      stride: [1, 1], padding: [[1, 1], [1, 1]], dilation: [1, 1]),
-    conv2: Conv2d(weight: leaves[2], bias: leaves[3],
-      stride: [1, 1], padding: [[1, 1], [1, 1]], dilation: [1, 1]),
-    fc1: Linear(weight: leaves[4], bias: leaves[5]),
-    fc2: Linear(weight: leaves[6], bias: leaves[7]),
-  )
-
-proc sgdUpdate(p, g, lr: Tensor): Tensor =
-  var bdims: seq[int] = @[]
-  let lrB = broadcastTo(lr, p.shape, bdims)
-  sub(p, mul(lrB, g))
-
-proc buildTrainStep(): JitFunction =
-  let trainFn: JitFn = proc(args: openArray[Tensor]): seq[Tensor] =
-    let x = args[ParamCount]
-    let y = args[ParamCount + 1]
-    let lr = args[ParamCount + 2]
-
-    let lossFn = proc(p: openArray[Tensor]): Tensor =
-      softmaxCrossEntropy(forward(modelFromLeaves(p), x), y)
-
-    let vr = vjp(lossFn, [
-      args[0], args[1], args[2], args[3],
-      args[4], args[5], args[6], args[7],
-    ])
-    let grads = vr.pullback(scalarF32(1'f32))
-
-    var outs: seq[Tensor] = @[vr.output]
-    for i in 0 ..< ParamCount:
-      outs.add sgdUpdate(args[i], grads[i], lr)
-    outs
-
-  jit(trainFn, "mnist_cnn_cuda_train",
-    donateArgs = [0, 1, 2, 3, 4, 5, 6, 7])
-```
-
-`donateArgs` tells PJRT it may reuse the old parameter buffers for the updated
-parameters. After a donated call, only use the returned parameter tensors.
-
-#### Step 5: Define the Trainer Task, Hooks, and Metrics
-
-The task owns model state and step logic. The Trainer calls `trainingStep` for
-each batch, optional validation hooks when a validation set exists, and
-lifecycle hooks around epochs and checkpoint saves. Task hooks run before
-callback hooks at the same point.
-
-```nim
-type
-  MnistTask = object
-    model: MnistCnn
-    trainJ: JitFunction
-    lr: Tensor
-    opt: OptimizerConfig
-    device: Device
-
-proc batchAccuracy(logits, oneHot: Tensor): float32 =
-  let scores = logits.toHost(float32)
-  let labels = oneHot.toHost(float32)
-  var correct = 0
-  let n = logits.shape[0]
-  for i in 0 ..< n:
-    var bestScore = -Inf.float32
-    var predicted = 0
-    var expected = 0
-    var bestLabel = -1.0'f32
-    for c in 0 ..< NumClasses:
-      let score = scores[i * NumClasses + c]
-      if score > bestScore:
-        bestScore = score
-        predicted = c
-      let label = labels[i * NumClasses + c]
-      if label > bestLabel:
-        bestLabel = label
-        expected = c
-    if predicted == expected:
-      inc correct
-  float32(correct) / float32(n)
-
-proc initMnistTask(d: Device; key: Key): MnistTask =
-  let lr = scalarF32(d, LearningRate)
-  MnistTask(
-    model: initMnistCnn(d, key),
-    trainJ: buildTrainStep(),
-    lr: lr,
-    opt: initOptimizerConfig(OptimizerKind(kind: otSgd, sgd: initSgd(lr))),
-    device: d,
-  )
-
-proc trainingStep(t: var MnistTask; batch: Batch; batchIdx: int;
-    ctx: var TrainContext): Tensor =
-  let (x, y) = toTensors(t.device, batch, NumClasses)
-  let outs = t.trainJ.call(treeFlatten(t.model) & @[x, y, t.lr])
-
-  t.model = modelFromLeaves(outs[1 .. ^1])
-
-  let lossValue = outs[0].item(float32)
-  let logits = forward(t.model, x)
-  ctx.log("train/loss", lossValue,
-    onStep = true, onEpoch = true, progBar = true)
-  ctx.log("train/acc", batchAccuracy(logits, y),
-    onStep = true, onEpoch = true, progBar = true)
-  outs[0]
-
-proc configureOptimizers(t: MnistTask): OptimizerConfig =
-  t.opt
-
-proc validationStep(t: var MnistTask; batch: Batch; batchIdx: int;
-    ctx: var TrainContext): Tensor =
-  let (x, y) = toTensors(t.device, batch, NumClasses)
-  let logits = forward(t.model, x)
-  let loss = softmaxCrossEntropy(logits, y)
-  ctx.log("val/loss", loss.item(float32), onEpoch = true, progBar = true)
-  ctx.log("val/acc", batchAccuracy(logits, y),
-    onEpoch = true, progBar = true)
-  loss
-
-proc onFitStart(t: var MnistTask; ctx: var TrainContext) =
-  echo "Training MNIST CNN on ", t.device
-
-proc onTrainEpochEnd(t: var MnistTask; ctx: var TrainContext) =
-  for metric in ctx.epochMetrics:
-    echo &"  {metric.name}: {metric.value:.4f}"
-
-proc onSaveCheckpoint(t: var MnistTask; path: string;
-    ctx: var TrainContext) =
-  let wb = initWorkbench(akCuda)
-  wb.save(path, t.model)
-```
-
-`ctx.log` stores scalar metrics. `onStep` metrics are visible to progress and
-log callbacks immediately; `onEpoch` metrics are reduced at epoch end. The
-`Checkpoint` callback decides *when* to save, and the task's
-`onSaveCheckpoint` defines *what* to save.
-
-#### Step 6: Fit with Callbacks
-
-```nim
-proc run() =
-  let d = initRuntime()
-  let mnistDir = getEnv("REW_MNIST_DIR")
-  if mnistDir.len == 0:
-    quit("Set REW_MNIST_DIR to a directory with train_*.npy and val_*.npy")
-
-  let keys = split(initKey(42), 3)
-  var task = initMnistTask(d, keys[0])
-
-  let trainDs = mnistDataset(mnistDir, "train", keys[1],
-    shuffleData = true)
-  let valDs = mnistDataset(mnistDir, "val", keys[2],
-    shuffleData = false)
-  let data = initDataPipe(trainDs, val = some(valDs))
-
-  var trainer = initTrainer(maxEpochs = 10, accelerator = akCuda,
-    automaticOptimization = false)
-  trainer.logEvery = 1
-  trainer.callbacks = @[
-    initCheckpoint(
-      monitor = "val/loss",
-      dirPath = "checkpoints/mnist-cnn",
-      saveTopK = 2,
-      mode = cmMin).toCallback(),
-    initEarlyStopping(
-      monitor = "val/loss",
-      patience = 3,
-      mode = cmMin).toCallback(),
-    initProgressBar(refreshRate = 1).toCallback(),
-    initLogMonitor(logEvery = 10).toCallback(),
-  ]
-
-  trainer.fit(task, data)
-
-  let wb = initWorkbench(akCuda)
-  wb.save("checkpoints/mnist-cnn-final", task.model)
-
-when isMainModule:
-  run()
+var trainer = initTrainer(maxEpochs = 5, accelerator = akCpu)
+trainer.donateParams = true
+trainer.fit(state, data, loss)
 ```
 
 Run it with:
 
 ```bash
-REW_TARGET=cuda12 REW_MNIST_DIR=$HOME/datasets/mnist \
-  nim c --threads:on -r examples/mnist_cnn_trainer_cuda.nim
+nim c -r examples/mnist_trainer.nim
 ```
 
-The `REW_TARGET` environment variable is optional when you call
-`initDevice(tCuda12)` yourself, but setting it keeps `defaultDevice()` and
-`Workbench` aligned with CUDA in any helper code.
-
-#### Step 7: Save, Load, and Run Inference
-
-`Workbench.save` writes one `.npy` file per tensor leaf plus a
-`manifest.json`. Loading needs a prototype value so the pytree structure can be
-reconstructed.
-
-```nim
-proc buildInferStep(): JitFunction =
-  let inferFn: JitFn = proc(args: openArray[Tensor]): seq[Tensor] =
-    let x = args[ParamCount]
-    @[forward(modelFromLeaves(args), x)]
-  jit(inferFn, "mnist_cnn_cuda_infer")
-
-proc predictOne(model: MnistCnn; inferJ: JitFunction; d: Device;
-    pixels: seq[float32]): int =
-  let x = fromHostF32(d, pixels, [1, ImageSide, ImageSide, 1])
-  let outs = inferJ.call(treeFlatten(model) & @[x])
-  let scores = outs[0].toHost(float32)
-
-  result = 0
-  var best = scores[0]
-  for c in 1 ..< NumClasses:
-    if scores[c] > best:
-      best = scores[c]
-      result = c
-
-proc loadForInference(d: Device; path: string): MnistCnn =
-  let wb = initWorkbench(akCuda)
-  let prototype = initMnistCnn(d, initKey(0))
-  wb.load(path, prototype)
-```
-
-For real inference, pass normalized pixels in the same layout the training
-pipeline produced: `[1, 28, 28, 1]`, flattened as 784 row-major `float32`
-values in `[0, 1]`. Keep preprocessing identical between training and
-inference; most accuracy bugs in small image models come from a layout or
-normalization mismatch.
+Use `rew/xla` directly when you need raw lowering, HLO dumps, or explicit
+`JitFunction` handles. High-level training examples should stay on
+`TrainState`, `compileTrainStep`, and `Trainer.fit(state, data, ...)`.
 
 ### 5.15 Advanced Features
 
@@ -2195,7 +1751,8 @@ proc forward(rope: RoPE, x: Tensor, offset = 0): Tensor
 
 # LoRA
 type QloraLinear = object
-  dequantizedWeight, bias, A, B: Tensor
+  dequantizedWeight, bias: Buffer[Tensor]
+  A, B: Param[Tensor]
   rank: int
   alpha, scaling: float32
 type QloraConfig = object
@@ -2238,6 +1795,13 @@ proc registerNoGrad(opName: string)
 ```
 
 ### 6.9 jit Transform
+
+Compiler-tier import:
+
+```nim
+import rew
+import rew/xla
+```
 
 ```nim
 type
@@ -2376,12 +1940,12 @@ proc clipGradNorm[P](grads: P, maxNorm: float32): P
 proc clipGradValue[P](grads: P, maxValue: float32): P
 
 # Lookahead wrapper
-type Lookahead = object
-  opt: OptimizerKind
+type Lookahead[O, S] = object
+  inner: O
   k: int
   alpha: float32
-proc initLookahead(opt: OptimizerKind, k = 5,
-                    alpha = 0.5'f32): Lookahead
+proc initLookahead[O, S, P](inner: O, alpha = 0.5'f32,
+                            k = 5): Lookahead[O, S]
 ```
 
 ### 6.13 LR Schedulers
@@ -2411,7 +1975,7 @@ proc initReduceOnPlateau(factor = 0.5'f32, patience = 5,
 proc step(s: var ReduceOnPlateau, lr: Tensor, metric: float32): Tensor
 ```
 
-### 6.14 Data Pipeline
+### 6.14 Dataset Pipeline
 
 ```nim
 type
@@ -2494,58 +2058,69 @@ proc loadSafeTensors(path: string): Table[string, NpyArray]
 ```nim
 import rew/train
 
-# Workbench (Tier 1)
+# Runtime
 type
   Accelerator = enum akCpu, akCuda, akRocm, akTpu, akAuto
   Precision = enum prFloat32, prFloat16, prBFloat16, prMixedF16, prMixedBF16
-  Workbench = object
+  Runtime = object
     accelerator: Accelerator
     devices: int
     precision: Precision
     device: Device
 
-proc initWorkbench(accelerator = akAuto, devices = 1,
-                   precision = prFloat32): Workbench
-proc setup[T](wb: var Workbench, model: T): T
-proc setup[T](wb: var Workbench, pipe: Dataset[T]): Dataset[T]
-proc computeGrads[T](wb: Workbench,
+proc initRuntime(accelerator = akAuto, devices = 1,
+                 precision = prFloat32): Runtime
+proc setup[T](runtime: var Runtime, model: T): T
+proc setup[T](runtime: var Runtime, ds: Dataset[T]): Dataset[T]
+proc computeGrads[T](runtime: Runtime,
     fn: proc(args: openArray[Tensor]): Tensor, params: T): T
-proc allReduce(wb: Workbench, t: Tensor): Tensor
-proc isGlobalZero(wb: Workbench): bool
-proc nextKey(wb: var Workbench): Key
-proc save[T](wb: Workbench, path: string, state: T)
-proc load[T](wb: Workbench, path: string, prototype: T): T
+proc allReduce(runtime: Runtime, t: Tensor): Tensor
+proc isGlobalZero(runtime: Runtime): bool
+proc nextKey(runtime: var Runtime): Key
+proc save[T](runtime: Runtime, path: string, state: T)
+proc load[T](runtime: Runtime, path: string, prototype: T): T
 proc seedEverything(seed: int)
 
-# DataPipe
-type DataPipe[T] = object
+# TrainState and typed steps
+type
+  CallCtx = object
+    runtime: Runtime
+    mode: TrainMode
+
+  TrainState[M] = object
+    model: M
+    opt: GradientTransform
+    optState: OptimState
+    step: int
+    key: Key
+
+  StepResult[S] = object
+    state: S
+    loss: Tensor
+    metrics: seq[StepMetric]
+
+  LossFn[M, B] = proc(model: M; batch: B; ctx: CallCtx): Tensor
+  TrainStepFn[M, B] = proc(state: TrainState[M]; batch: B;
+    ctx: CallCtx): StepResult[TrainState[M]]
+
+proc initTrainState[M](model: M; opt: GradientTransform;
+                       key = initKey(0)): TrainState[M]
+proc compileTrainStep[M, B](loss: LossFn[M, B]; state: TrainState[M];
+    runtime = initRuntime(); donate: openArray[string] = []): CompiledTrainStep[M, B]
+
+# DataSplits
+type DataSplits[T] = object
   train: Dataset[T]
   val: Option[Dataset[T]]
   test: Option[Dataset[T]]
   predict: Option[Dataset[T]]
 
-proc initDataPipe[T](train: Dataset[T],
+proc initDataSplits[T](train: Dataset[T],
     val = none[Dataset[T]](),
     test = none[Dataset[T]](),
-    predict = none[Dataset[T]]()): DataPipe[T]
+    predict = none[Dataset[T]]()): DataSplits[T]
 
-# TrainContext
-type
-  TrainMode = enum tmFit, tmValidate, tmTest, tmPredict
-  TrainContext = object
-    epoch, globalStep: int
-    mode: TrainMode
-    metrics: seq[MetricEntry]
-    shouldStop: bool
-
-proc log(ctx: var TrainContext, name: string, value: Tensor,
-         onStep = false, onEpoch = true, progBar = false,
-         reduceFn = rdMean)
-proc log(ctx: var TrainContext, name: string, value: float32, ...)
-proc logDict(ctx: var TrainContext,
-             metrics: openArray[(string, float32)], ...)
-
-# Trainer (Tier 2)
+# Trainer
 type Trainer = object
   maxEpochs: int
   maxSteps: Option[int]
@@ -2554,54 +2129,19 @@ type Trainer = object
   precision: Precision
   logEvery: int
   valInterval: Option[int]
-  gradientClipNorm: Option[float32]
-  gradientClipVal: Option[float32]
-  accumulateGradBatches: int
-  automaticOptimization: bool
-  jit: bool
   donateParams: bool
   callbacks: seq[Callback]
 
 proc initTrainer(maxEpochs = 10, accelerator = akAuto,
-                 devices = 1, precision = prFloat32,
-                 automaticOptimization = false): Trainer
-proc fit[T, D](trainer: var Trainer, task: var T, data: D)
-proc validate[T, D](trainer: var Trainer, task: var T,
-                    data: D): seq[MetricEntry]
-proc test[T, D](trainer: var Trainer, task: var T,
-                data: D): seq[MetricEntry]
-proc predict[T, D](trainer: var Trainer, task: var T,
-                   data: D): seq[Tensor]
+                 devices = 1, precision = prFloat32): Trainer
+proc fit[M, B](trainer: var Trainer, state: var TrainState[M],
+               data: DataSplits[B], loss: LossFn[M, B])
+proc fit[M, B](trainer: var Trainer, state: var TrainState[M],
+               data: DataSplits[B], trainStep: TrainStepFn[M, B])
+proc validate[M, B](trainer: var Trainer, state: TrainState[M],
+                    data: DataSplits[B], loss: LossFn[M, B]): seq[MetricEntry]
 
 # Callbacks
-type Callback = object
-  name: string
-  # ... optional hook proc slots
-
-proc initCallback(name: string): Callback
-proc toCallback(ckpt: Checkpoint): Callback
-proc toCallback(es: EarlyStopping): Callback
-proc toCallback(pb: ProgressBar): Callback
-proc toCallback(lm: LogMonitor): Callback
-
-# Built-in callbacks
-type
-  Checkpoint = object
-    monitor: string
-    mode: CheckpointMode
-    saveLast: bool
-    saveTopK: int
-    dirPath: string
-  EarlyStopping = object
-    monitor: string
-    patience: int
-    minDelta: float32
-    mode: CheckpointMode
-  ProgressBar = object
-    refreshRate: int
-  LogMonitor = object
-    logEvery: int
-
 proc initCheckpoint(monitor = "val/loss",
     dirPath = "checkpoints",
     saveLast = true, saveTopK = 1,
@@ -2698,9 +2238,9 @@ This section distills conventions from the Nim standard library style guide
 - **Multi-line calls** indent their parameters:
 
 ```nim
-proc trainingStep(t: var MnistTask, batch: Batch, batchIdx: int,
-                  ctx: var TrainContext): Tensor =
-  discard
+proc loss(model: Mnist; batch: MnistBatch; ctx: CallCtx): Tensor =
+  discard ctx
+  softmaxCrossEntropy(forward(model, batch.x), batch.y)
 ```
 
 ### 7.3 Tensor Management
@@ -2750,16 +2290,16 @@ for step in 0 ..< nSteps:
 
 ### 7.5 Training Loop Patterns
 
-**Prefer `jit(grad(fn))` over eager training.** Tracing forward and backward
-together into one fused StableHLO program eliminates the per-op compile
-overhead of eager execution and enables XLA-level fusion optimizations:
+**Prefer typed compiled steps over eager training.** Tracing forward and
+backward together into one fused StableHLO program eliminates the per-op
+compile overhead of eager execution and enables XLA-level fusion optimizations:
 
 ```nim
-# Good: single fused program
-let trainFn = proc(args: openArray[Tensor]): seq[Tensor] =
-  let outputs = ...
-  # forward + backward + update in one trace
-let trainJ = jit(trainFn, "step", donateArgs = @[...])
+# Good: single fused typed step
+var state = initTrainState(model, adamw(lr))
+var step = compileTrainStep(loss, state, runtime,
+  donate = paramsOf(state.model))
+state = step(state, batch).state
 
 # Less ideal: per-op eager execution
 for step in 0 ..< nSteps:
@@ -2773,8 +2313,8 @@ for step in 0 ..< nSteps:
 | Situation | Use |
 |-----------|-----|
 | Simple supervised learning | `Trainer` with built-in callbacks |
-| Research, custom loops, debugging | `Workbench` |
-| GANs, RL, meta-learning | `Trainer` with `automaticOptimization = false` |
+| Research, custom loops, debugging | `Runtime` plus `compileTrainStep` |
+| GANs, RL, meta-learning | Typed custom loop over `TrainState` |
 
 ### 7.6 Error Handling
 
@@ -2809,7 +2349,7 @@ except TensorError as e:
 
 ### 7.8 Compilation Flags
 
-- Use `--threads:on` when using `prefetch` or `parMap` data pipeline
+- Use `--threads:on` when using `prefetch` or `parMap` dataset pipeline
   transforms.
 - The `--d:release` flag enables optimizations. Use `--d:danger` to
   disable all runtime checks for maximum performance in production.
@@ -2858,7 +2398,7 @@ When adding new ops, layers, or optimizers:
 
 - **Architecture reference:** `docs/architecture.md` — layered design,
   invariants, and build phases.
-- **Examples directory:** `examples/` — MNIST (MLP, CNN, Workbench,
+- **Examples directory:** `examples/` — MNIST (MLP, CNN, Runtime,
   Trainer), GAN training, QLoRA adapter training.
 - **Test suite:** `tests/` — Standalone `t*.nim` files demonstrating
   every operation and subsystem.

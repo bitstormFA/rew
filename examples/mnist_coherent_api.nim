@@ -8,7 +8,6 @@
 
 import std/[strformat]
 import rew
-import rew/pjrt/loader
 
 const
   Backend = tCpu
@@ -43,15 +42,14 @@ proc loss(model: MnistTiny; batch: MnistBatch; ctx: CallCtx): Tensor =
   softmaxCrossEntropy(forward(model.head, batch.x), batch.y)
 
 proc run() =
-  try:
-    discard loadPlugin(Backend)
-  except PjrtError as e:
-    echo "  (skip) ", e.msg
-    return
-
   let d = initDevice(Backend)
   setDefaultDevice(d)
   installEagerBackend()
+  try:
+    discard scalarF32(d, 0'f32)
+  except EagerError as e:
+    echo "  (skip) ", e.msg
+    return
 
   let runtime = initRuntime(akCpu)
   let batch = syntheticBatch(d)

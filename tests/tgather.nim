@@ -1,6 +1,7 @@
 ## Gather-family op behavior checks.
 
 import rew
+import rew/xla
 import std/strutils
 
 block index_select_trace_shape_and_ir:

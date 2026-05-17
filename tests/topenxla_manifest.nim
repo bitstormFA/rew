@@ -2,6 +2,7 @@
 
 import std/tables
 import rew
+import rew/xla
 
 block manifest_pins_components:
   let m = openXlaManifest()

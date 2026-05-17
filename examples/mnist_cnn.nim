@@ -1,4 +1,4 @@
-## MNIST CNN training example (data pipeline API).
+## MNIST CNN training example (Dataset Pipeline API).
 ##
 ## Demonstrates the full Phase 11 stack — `Conv2d`, `maxPool2d`,
 ## and `Linear` traced and trained as a single `jit`-compiled SGD
@@ -26,6 +26,7 @@
 
 import std/[math, os, strformat]
 import rew
+import rew/xla
 import rew/pjrt/loader
 
 const
@@ -64,8 +65,8 @@ proc initLinearEager(d: Device; key: Key; inFeat, outFeat: int): Linear =
   var w = uniformF32(keys[0], inFeat * outFeat, -bound, bound)
   var b = newSeq[float32](outFeat)
   Linear(
-    weight: f32ToDevice(d, w, [inFeat, outFeat]),
-    bias:   f32ToDevice(d, b, [outFeat]),
+    weight: param(f32ToDevice(d, w, [inFeat, outFeat])),
+    bias: param(f32ToDevice(d, b, [outFeat])),
   )
 
 proc initConv2dEager(d: Device; key: Key;
@@ -77,9 +78,9 @@ proc initConv2dEager(d: Device; key: Key;
     outChannels * inChannels * kernelSize * kernelSize, -bound, bound)
   var b = newSeq[float32](outChannels)
   Conv2d(
-    weight: f32ToDevice(d, w,
-      [outChannels, inChannels, kernelSize, kernelSize]),
-    bias: f32ToDevice(d, b, [outChannels]),
+    weight: param(f32ToDevice(d, w,
+      [outChannels, inChannels, kernelSize, kernelSize])),
+    bias: param(f32ToDevice(d, b, [outChannels])),
     stride: [1, 1],
     padding: [[1, 1], [1, 1]],
     dilation: [1, 1],
@@ -163,7 +164,7 @@ proc run() =
   let key = initKey(0xCAFE'u64)
   let keys = split(key, 5)
 
-  # ---- build data pipeline -------------------------------------------
+  # ---- build dataset pipeline ----------------------------------------
   let dir = getEnv("REW_MNIST_DIR")
   var pipeline: Dataset[seq[Sample]]
   if dir.len > 0:
@@ -193,22 +194,22 @@ proc run() =
   # ---- jit-compiled training step ------------------------------------
   #
   # Param order in the jit input vector:
-  #   0..1  conv1.weight, conv1.bias
-  #   2..3  conv2.weight, conv2.bias
-  #   4..5  fc1.weight, fc1.bias
-  #   6..7  fc2.weight, fc2.bias
+  #   0..1  conv1.weight.value, conv1.bias
+  #   2..3  conv2.weight.value, conv2.bias
+  #   4..5  fc1.weight.value, fc1.bias
+  #   6..7  fc2.weight.value, fc2.bias
   #   8     x   9 y   10 lr
   let trainFn: JitFn = proc(args: openArray[Tensor]): seq[Tensor] =
     let xa = args[8]
     let ya = args[9]
     let lr = args[10]
     let lossFn = proc(p: openArray[Tensor]): Tensor =
-      let c1 = Conv2d(weight: p[0], bias: p[1],
+      let c1 = Conv2d(weight: param(p[0]), bias: param(p[1]),
         stride: [1, 1], padding: [[1, 1], [1, 1]], dilation: [1, 1])
-      let c2 = Conv2d(weight: p[2], bias: p[3],
+      let c2 = Conv2d(weight: param(p[2]), bias: param(p[3]),
         stride: [1, 1], padding: [[1, 1], [1, 1]], dilation: [1, 1])
-      let l1 = Linear(weight: p[4], bias: p[5])
-      let l2 = Linear(weight: p[6], bias: p[7])
+      let l1 = Linear(weight: param(p[4]), bias: param(p[5]))
+      let l2 = Linear(weight: param(p[6]), bias: param(p[7]))
       softmaxCrossEntropy(forwardCnn(c1, c2, l1, l2, xa), ya)
     let vr = vjp(lossFn,
       [args[0], args[1], args[2], args[3],
@@ -229,7 +230,7 @@ proc run() =
   var lrHost = @[LearningRate]
   let lr = f32ToDevice(d, lrHost, [])
 
-  # ---- training loop using the data pipeline -------------------------
+  # ---- training loop using the dataset pipeline ----------------------
   for epoch in 1 .. TrainEpochs:
     echo &"\n  epoch {epoch}/{TrainEpochs}"
     let iter = pipeline.source()
@@ -240,17 +241,17 @@ proc run() =
       let b = collate(batchSamples)
       let (x, y) = toTensors(d, b, NumClasses)
       let outs = trainJ.call([
-        conv1.weight, conv1.bias,
-        conv2.weight, conv2.bias,
-        fc1.weight,   fc1.bias,
-        fc2.weight,   fc2.bias,
+        conv1.weight.value, conv1.bias.value,
+        conv2.weight.value, conv2.bias.value,
+        fc1.weight.value,   fc1.bias.value,
+        fc2.weight.value,   fc2.bias.value,
         x, y, lr])
-      conv1 = Conv2d(weight: outs[1], bias: outs[2],
+      conv1 = Conv2d(weight: param(outs[1]), bias: param(outs[2]),
         stride: [1, 1], padding: [[1, 1], [1, 1]], dilation: [1, 1])
-      conv2 = Conv2d(weight: outs[3], bias: outs[4],
+      conv2 = Conv2d(weight: param(outs[3]), bias: param(outs[4]),
         stride: [1, 1], padding: [[1, 1], [1, 1]], dilation: [1, 1])
-      fc1   = Linear(weight: outs[5], bias: outs[6])
-      fc2   = Linear(weight: outs[7], bias: outs[8])
+      fc1   = Linear(weight: param(outs[5]), bias: param(outs[6]))
+      fc2   = Linear(weight: param(outs[7]), bias: param(outs[8]))
       let loss = readBackF32(outs[0])[0]
       let acc = accuracy(forwardCnn(conv1, conv2, fc1, fc2, x), y)
       inc step

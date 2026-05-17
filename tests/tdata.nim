@@ -1,4 +1,4 @@
-## Data pipeline — tests for sources, transforms, sample/batch helpers.
+## Dataset Pipeline — tests for sources, transforms, sample/batch helpers.
 
 import std/algorithm
 import rew

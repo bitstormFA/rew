@@ -12,17 +12,15 @@ import ../rng
 import ../autograd/transform
 import ../transform/jit
 import ../optim/transform as optim_tx
-import ./workbench
+import ./runtime
 import ./context
 
 type
   CallCtx* = object
-    ## Per-step call context passed into typed losses and custom steps.
+    ## Execution context passed into typed losses and custom steps.
+    ## Dynamic counters and PRNG state live on `TrainState`.
     runtime*: Runtime
-    epoch*: int
-    step*: int
     mode*: TrainMode
-    key*: Key
 
   TrainState*[M] = object
     ## Model, optimizer, optimizer state, PRNG key, and global step.
@@ -54,17 +52,16 @@ type
     loss*: LossFn[M, B]
     runtime*: Runtime
     donate*: seq[string]
-    compiled*: JitFunction
+    compiled: JitFunction
     modelProto*: M
     batchProto*: B
     optStateProto*: OptimState
     opt*: GradientTransform
-    prepared*: bool
+    prepared: bool
 
-func initCallCtx*(runtime: Runtime; epoch, step: int;
-    mode: TrainMode = tmFit; key: Key = initKey(0)): CallCtx =
-  ## Creates a per-call context for typed steps.
-  CallCtx(runtime: runtime, epoch: epoch, step: step, mode: mode, key: key)
+func initCallCtx*(runtime: Runtime; mode: TrainMode = tmFit): CallCtx =
+  ## Creates an execution context for typed steps.
+  CallCtx(runtime: runtime, mode: mode)
 
 proc initTrainState*[M](model: M; opt: GradientTransform;
     key: Key = initKey(0)): TrainState[M] =
@@ -124,7 +121,7 @@ proc buildJit[M, B](step: var CompiledTrainStep[M, B]) =
     let batch = treeUnflatten(batchProto, batchLeaves)
     let optState = treeUnflatten(optStateProto, optStateLeaves)
     let tracedOpt = treeUnflatten(opt, optLeaves)
-    let ctx = initCallCtx(runtime, 0, 0, tmFit)
+    let ctx = initCallCtx(runtime, tmFit)
 
     let lossForGrad = proc(flatParams: openArray[Tensor]): Tensor =
       let tracedModel = treeUnflatten(modelProto, @flatParams)

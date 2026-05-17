@@ -3,6 +3,7 @@
 ## needed.
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)

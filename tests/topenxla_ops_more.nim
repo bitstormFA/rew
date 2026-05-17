@@ -2,6 +2,7 @@
 ## triangular_solve, and torch_index_select.
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)

@@ -4,6 +4,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/arith
@@ -21,7 +22,7 @@ type
     linear*: Linear
     improved*: bool       ## If true, self-loop weight is 2 instead of 1
     addBias*: bool
-    bias*: Tensor          ## shape [outChannels]
+    bias*: Param[Tensor]   ## shape [outChannels]
 
 proc initGCNConv*(key: Key; inChannels, outChannels: int;
     improved: bool = false; bias: bool = true): GCNConv =
@@ -36,7 +37,7 @@ proc initGCNConv*(key: Key; inChannels, outChannels: int;
   )
   if bias:
     let bData = zerosF32(outChannels)
-    result.bias = constantF32(@[outChannels], bData)
+    result.bias = param(constantF32(@[outChannels], bData))
 
 proc forward*(layer: GCNConv; x, edgeIndex: Tensor): Tensor =
   ## Forward pass of GCNConv.

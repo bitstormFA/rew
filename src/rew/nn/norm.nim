@@ -5,6 +5,7 @@
 ## and applies a learnable affine transform (gamma * normalized + beta).
 
 import ../tensor
+import ../pytree
 import ../ops/literal
 import ../ops/arith
 import ../ops/unary
@@ -17,8 +18,8 @@ type
   LayerNorm* = object
     ## Layer normalization over the last `normalizedShape.len` dims.
     ## `gamma` (scale) and `beta` (bias) have shape `normalizedShape`.
-    gamma*: Tensor
-    beta*: Tensor
+    gamma*: Param[Tensor]
+    beta*: Param[Tensor]
     normalizedShape*: seq[int]
     eps*: float32
 
@@ -31,8 +32,8 @@ proc initLayerNorm*(normalizedShape: openArray[int];
   let gammaData = onesF32(count)
   let betaData = zerosF32(count)
   LayerNorm(
-    gamma: constantF32(@normalizedShape, gammaData),
-    beta: constantF32(@normalizedShape, betaData),
+    gamma: param(constantF32(@normalizedShape, gammaData)),
+    beta: param(constantF32(@normalizedShape, betaData)),
     normalizedShape: @normalizedShape,
     eps: eps,
   )
@@ -88,8 +89,8 @@ type
   InstanceNorm* = object
     ## Instance normalization over spatial dims. For NHWC input, this
     ## normalizes over dims [1, 2] (H, W).
-    gamma*: Tensor
-    beta*: Tensor
+    gamma*: Param[Tensor]
+    beta*: Param[Tensor]
     numFeatures*: int
     eps*: float32
 
@@ -98,8 +99,8 @@ proc initInstanceNorm*(numFeatures: int; eps: float32 = 1e-5'f32): InstanceNorm 
   let dataOnes = onesF32(numFeatures)
   let dataZeros = zerosF32(numFeatures)
   InstanceNorm(
-    gamma: constantF32([numFeatures], dataOnes),
-    beta: constantF32([numFeatures], dataZeros),
+    gamma: param(constantF32([numFeatures], dataOnes)),
+    beta: param(constantF32([numFeatures], dataZeros)),
     numFeatures: numFeatures,
     eps: eps,
   )
@@ -138,8 +139,8 @@ type
   GroupNorm* = object
     ## Group normalization. Splits channels into groups, then normalizes
     ## each group independently.
-    gamma*: Tensor
-    beta*: Tensor
+    gamma*: Param[Tensor]
+    beta*: Param[Tensor]
     numGroups*: int
     numChannels*: int
     eps*: float32
@@ -155,8 +156,8 @@ proc initGroupNorm*(numGroups, numChannels: int;
   let dataOnes = onesF32(numChannels)
   let dataZeros = zerosF32(numChannels)
   GroupNorm(
-    gamma: constantF32([numChannels], dataOnes),
-    beta: constantF32([numChannels], dataZeros),
+    gamma: param(constantF32([numChannels], dataOnes)),
+    beta: param(constantF32([numChannels], dataZeros)),
     numGroups: numGroups,
     numChannels: numChannels,
     eps: eps,

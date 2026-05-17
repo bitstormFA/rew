@@ -1,6 +1,7 @@
 ## Tests for Llama architecture.
 
 import rew
+import rew/xla
 
 let TestDevice = cpu(0)
 

@@ -4,6 +4,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/arith
@@ -24,7 +25,7 @@ type
     aggr*: AggregationType
     normalize*: bool          ## If true, l2-normalize output
     addBias*: bool
-    bias*: Tensor             ## [outChannels]
+    bias*: Param[Tensor]      ## [outChannels]
 
 proc initSAGEConv*(key: Key; inChannels, outChannels: int;
     aggr: AggregationType = pAggrMean; normalize: bool = false;
@@ -42,7 +43,7 @@ proc initSAGEConv*(key: Key; inChannels, outChannels: int;
   )
   if bias:
     let bData = zerosF32(outChannels)
-    result.bias = constantF32(@[outChannels], bData)
+    result.bias = param(constantF32(@[outChannels], bData))
 
 proc forward*(layer: SAGEConv; x, edgeIndex: Tensor): Tensor =
   ## Forward pass of SAGEConv.

@@ -6,13 +6,6 @@ import ../context
 import ./earlystop  # for CheckpointMode
 
 type
-  TrainerAccess* = object
-    ## Interface that the Trainer provides to callbacks via the `trainer`
-    ## pointer. The Trainer (Phase 5) allocates a `TrainerAccess`, fills in
-    ## the proc fields, and passes `addr(access)` as the `trainer: pointer`
-    ## argument to callback hooks.
-    saveCheckpoint*: proc(path: string; ctx: TrainContext) {.closure.}
-
   Checkpoint* = object
     monitor*: string
     mode*: CheckpointMode
@@ -65,9 +58,6 @@ proc pruneCheckpoints(state: CheckpointState; keep: int; dirPath: string) =
 
 func toCallback*(ckpt: Checkpoint): Callback =
   ## Converts the Checkpoint config into a `Callback`.
-  ##
-  ## The callback casts `trainer` to `ptr TrainerAccess` to call
-  ## `saveCheckpoint`. The Trainer (Phase 5) wires this up.
   let state = CheckpointState(
     bestScore: case ckpt.mode
       of cmMin: float32.high
@@ -76,8 +66,8 @@ func toCallback*(ckpt: Checkpoint): Callback =
   )
   result = initCallback("Checkpoint")
 
-  result.onTrainEpochEnd = some(proc(trainer, task: pointer;
-      ctx: var TrainContext) {.closure.} =
+  result.onTrainEpochEnd = some(proc(ctx: var TrainContext;
+      saveCheckpoint: CheckpointWriter) {.closure.} =
     # Find the monitored metric
     var currentScore: float32
     var found = false
@@ -92,8 +82,7 @@ func toCallback*(ckpt: Checkpoint): Callback =
         let path = ckpt.dirPath / formatFilename(ckpt.filename,
             ctx.epoch, ctx.globalStep, 0.0'f32)
         createDir(path)
-        let access = cast[ptr TrainerAccess](trainer)
-        access.saveCheckpoint(path, ctx)
+        saveCheckpoint(path, ctx)
       return
 
     let improved = case ckpt.mode
@@ -106,16 +95,14 @@ func toCallback*(ckpt: Checkpoint): Callback =
     if improved:
       state.bestScore = currentScore
       createDir(path)
-      let access = cast[ptr TrainerAccess](trainer)
-      access.saveCheckpoint(path, ctx)
+      saveCheckpoint(path, ctx)
       # Insert at front (best first)
       state.saved.insert(path, 0)
       # Prune excess
       pruneCheckpoints(state, ckpt.saveTopK, ckpt.dirPath)
     elif ckpt.saveLast:
       createDir(path)
-      let access = cast[ptr TrainerAccess](trainer)
-      access.saveCheckpoint(path, ctx)
+      saveCheckpoint(path, ctx)
       # Append as non-best checkpoint
       state.saved.add(path)
       # Keep saved list manageable

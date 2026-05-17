@@ -100,16 +100,20 @@ training APIs.
 | 7 | `src/rew/transform/` | `jit` trace-and-cache, control-flow combinators (`cond`/`whileLoop`/`fori`), vectorizing map (`vmap`). |
 | 8 | `src/rew/pytree.nim` | Generic flatten/unflatten via `fieldPairs`. No registration step. |
 | 9 | `src/rew/nn/`, `src/rew/optim/`, `src/rew/rng.nim`, `src/rew/serialize.nim` | Functional layers, activations, losses, optimizers, learning rate schedulers, splittable PRNG (Threefry-2x32), NumPy `.npy` I/O. |
-| 10 | `src/rew/data/` | Host-side data pipeline: lazy `DatasetFn[T]`, shuffle, batch, map, npy sources. |
-| — | `src/rew/train/` | Coherent high-level training API: `Runtime`, `TrainState`, typed `compileTrainStep`, `StepResult`, `Trainer`, callbacks, hooks, data splits, checkpoint/earlystop/progress/logmonitor. |
+| 10 | `src/rew/data/` | Host-side Dataset Pipeline: lazy `DatasetFn[T]`, shuffle, batch, map, npy sources. |
+| — | `src/rew/train/` | Coherent high-level training API: `Runtime`, `TrainState`, typed `compileTrainStep`, `StepResult`, `Trainer`, callbacks, data splits, checkpoint/earlystop/progress/logmonitor. |
 | — | `src/rew/value.nim` | General OpenXLA value model: tokens, tuples, futures, resources, dynamic dimensions, quantized/complex/FP8 element types. |
 | — | `src/rew/openxla/` | OpenXLA tool wrappers, custom-call registry, Tokamax kernel build metadata, pinned XLA/StableHLO/Shardy revisions. |
 
 The public surface is tiered: `import rew` for high-level user code,
 `import rew/xla` for raw compiler and lowering work, and `import rew/dev` for
-extension and plugin internals. The high-level tier follows
-[docs/high-level-api.md](high-level-api.md). Everything else under
-`src/rew/*` is internal and may change freely.
+extension internals plus plugin target/manifest tooling. Raw PJRT C modules
+remain explicit specialist imports under `rew/pjrt/*` because the PJRT layer
+boundary is linted. The high-level tier follows
+[docs/high-level-api.md](high-level-api.md); see
+[ADR 0001](adr/0001-typed-trainer-api.md) for the typed Trainer decision.
+Everything else under `src/rew/*` is internal or a specialist import and may
+change freely.
 
 ## Build phases
 
@@ -125,7 +129,7 @@ extension and plugin internals. The high-level tier follows
 | 7 | jit + combinators (cond, whileLoop, fori) + donation + vmap | done |
 | 8 | Serialization (.npy) + MNIST training step | done |
 | 9 | Bytecode coverage, CUDA/ROCm/TPU smoke tests | in progress |
-| 10 | Data pipeline (DatasetFn, lazy transforms, batching) | done |
+| 10 | Dataset Pipeline (DatasetFn, lazy transforms, batching) | done |
 | 11 | CNN ops (conv2d, maxPool2d, Conv2d layer) | done |
 | 12 | Training module (Runtime/TrainState + Trainer + callbacks) | done |
 | 13 | PJRT binaries rework (multi-plugin registry, manifest, Target enum) | done |
@@ -191,8 +195,9 @@ Both paths use the same `ShBuilder` ops and the same VJP registry.
 5. **Run `bau lint`** — the VJP coverage lint will fail if the op is
    unaccounted for.
 
-6. **Re-export** from `src/rew.nim` if the op lives in a new file (add the
-   import + export pair).
+6. **Re-export** user-level ops from `src/rew.nim` when they are part of the
+   everyday tensor surface. Raw compiler helpers belong in `src/rew/xla.nim`;
+   extension hooks belong in `src/rew/dev.nim`.
 
 ### Adding a new nn layer
 
@@ -241,9 +246,8 @@ Both paths use the same `ShBuilder` ops and the same VJP registry.
 
 ### Adding a training callback
 
-1. Create the file under `src/rew/train/callbacks/`. Implement the `on*` hooks
-   your callback needs — see `src/rew/train/hooks.nim` for the full hook
-   signature list.
+1. Create the file under `src/rew/train/callbacks/`. Implement the `on*`
+   callback slots your callback needs from `src/rew/train/callback.nim`.
 
 2. Wrap the hook implementations in a `proc init*(...): Callback` that returns
    a `Callback` object.
@@ -292,8 +296,10 @@ Use `REW_TARGET=cpu` to force CPU-only tests when no accelerator is available.
 - Only `buffer.nim`, `device.nim`, and `eager.nim` may import from
   `src/rew/pjrt/`.
 - `src/rew/nn/` and `src/rew/optim/` must never use `ref object`.
-- `src/rew.nim` is the only public API surface — everything else under
-  `src/rew/` is internal.
+- The public surface is tiered: `src/rew.nim` is the user-level umbrella,
+  `src/rew/xla.nim` is the raw compiler/lowering tier, and `src/rew/dev.nim`
+  is the extension tier. Other `src/rew/*` modules are implementation layers
+  or explicit specialist imports.
 
 ## Environment variables
 

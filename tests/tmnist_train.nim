@@ -7,6 +7,7 @@
 ## required.
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)
@@ -25,8 +26,8 @@ block mnist_train_step_lowers:
     let ya = args[5]
     let lr = args[6]
     let lossFn = proc(p: openArray[Tensor]): Tensor =
-      let l1 = Linear(weight: p[0], bias: p[1])
-      let l2 = Linear(weight: p[2], bias: p[3])
+      let l1 = Linear(weight: param(p[0]), bias: param(p[1]))
+      let l2 = Linear(weight: param(p[2]), bias: param(p[3]))
       softmaxCrossEntropy(forward(l2, relu(forward(l1, xa))), ya)
     let vr = vjp(lossFn, [args[0], args[1], args[2], args[3]])
     let grads = vr.pullback(scalarF32(1'f32))

@@ -29,6 +29,7 @@
 
 import std/[math, os, strformat]
 import rew
+import rew/xla
 import rew/pjrt/loader
 
 const
@@ -74,8 +75,8 @@ proc initLinearEager(d: Device; key: Key; inFeat, outFeat: int): Linear =
   var w = uniformF32(keys[0], inFeat * outFeat, -bound, bound)
   var b = newSeq[float32](outFeat)
   Linear(
-    weight: f32EagerTensor(d, [inFeat, outFeat], w),
-    bias:   f32EagerTensor(d, [outFeat], b),
+    weight: param(f32EagerTensor(d, [inFeat, outFeat], w)),
+    bias: param(f32EagerTensor(d, [outFeat], b)),
   )
 
 # ---- data loading ------------------------------------------------------
@@ -229,8 +230,8 @@ proc run() =
     let ya = args[5]
     let lr = args[6]
     let lossFn = proc(p: openArray[Tensor]): Tensor =
-      let l1 = Linear(weight: p[0], bias: p[1])
-      let l2 = Linear(weight: p[2], bias: p[3])
+      let l1 = Linear(weight: param(p[0]), bias: param(p[1]))
+      let l2 = Linear(weight: param(p[2]), bias: param(p[3]))
       softmaxCrossEntropy(forward(l2, relu(forward(l1, xa))), ya)
     let vr = vjp(lossFn, [args[0], args[1], args[2], args[3]])
     let grads = vr.pullback(scalarF32(1'f32))
@@ -251,11 +252,11 @@ proc run() =
 
   const Steps = 5
   for step in 1 .. Steps:
-    let outs = trainJ.call([layer1.weight, layer1.bias,
-                            layer2.weight, layer2.bias,
+    let outs = trainJ.call([layer1.weight.value, layer1.bias.value,
+                            layer2.weight.value, layer2.bias.value,
                             x, y, lr])
-    layer1 = Linear(weight: outs[1], bias: outs[2])
-    layer2 = Linear(weight: outs[3], bias: outs[4])
+    layer1 = Linear(weight: param(outs[1]), bias: param(outs[2]))
+    layer2 = Linear(weight: param(outs[3]), bias: param(outs[4]))
     let l = readBackF32(outs[0])[0]
     let acc = accuracy(forward(layer1, layer2, x), y)
     echo &"  step {step}: loss = {l:.4f}, accuracy = {acc * 100:.1f}% (batch={batchSize})"

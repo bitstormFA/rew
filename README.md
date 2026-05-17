@@ -3,13 +3,13 @@
 Rechenwerk is an eager, debuggable Nim deep learning framework on
 OpenXLA/PJRT.
 
-It gives you a PyTorch-like tensor API, a JAX-style runtime `jit`, functional
-layers and optimizers, and one shared StableHLO/VJP path for eager execution and
-compiled training steps.
+It gives you a PyTorch-like tensor API, typed compiled training steps,
+functional layers and optimizers, and one shared StableHLO/VJP path for eager
+execution and compiler-backed transforms.
 
 ## Why Try It?
 
-- One compiler path: eager ops and `jit` traces emit the same StableHLO.
+- One compiler path: eager ops and raw `jit` traces emit the same StableHLO.
 - One autodiff path: VJP rules are shared by eager tape and `grad`/`vjp`.
 - Plain Nim objects: layers, optimizers, configs, and pytrees are value types.
 - Explicit runtime behavior: no macro `jit`, no hidden host transfers, no
@@ -66,10 +66,11 @@ nim c -r quickstart.nim
 - Tensor ops: arithmetic, reductions, shape ops, linalg, convolution, pooling,
   gather/scatter, sort, random, and normalization.
 - Autograd: `grad`, `vjp`, `valueAndGrad`, and eager tape-style `backward`.
-- Transforms: runtime `jit`, `cond`, `whileLoop`, `fori`, and `vmap`.
+- Transforms: user-level `grad`, `vjp`, `cond`, `whileLoop`, `fori`, and
+  `vmap`; raw `jit`, lowering, and HLO inspection live under `import rew/xla`.
 - Neural nets: functional layers under `rew.nn`, explicit PRNG keys, and pytree
   flatten/unflatten for training state.
-- Training: `Workbench` for user-owned loops and `Trainer` for framework-owned
+- Training: `Runtime` for user-owned loops and `Trainer` for framework-owned
   loops with callbacks.
 - Data: lazy datasets, transforms, batching, image loading, and graph data
   helpers.
@@ -105,6 +106,10 @@ serially or raise it on larger machines.
 Architecture notes live in [docs/architecture.md](docs/architecture.md), the
 user guide is in [docs/user-guide.md](docs/user-guide.md), and PJRT plugin
 details are in [docs/binaries.md](docs/binaries.md).
+
+The public API is tiered: `import rew` for high-level user code,
+`import rew/xla` for raw compiler/lowering work, and `import rew/dev` for
+extension internals.
 
 ## License
 

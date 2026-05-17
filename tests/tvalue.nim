@@ -1,6 +1,7 @@
 ## General OpenXLA value model.
 
 import rew
+import rew/xla
 
 block static_tensor_value_type:
   let ty = initTensorValueType(dtFloat32, [2, 3])

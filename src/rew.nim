@@ -1,32 +1,22 @@
-## Rechenwerk (rew) — eager, debuggable Nim deep learning framework on OpenXLA/PJRT.
+## Rechenwerk (rew) — high-level user API for tensor and training code.
 ##
-## This module is the public API surface. All user-facing types and procs are
-## re-exported from here; everything under `rew/<layer>/...` is internal and
-## may change without notice.
+## This module is the user-level public surface. Raw StableHLO/OpenXLA,
+## explicit tracing, lowering, JIT handles, dispatch internals, and extension
+## hooks live in `rew/xla` or `rew/dev`.
 ##
 ## See `docs/architecture.md` for the layered design and the ten locked
 ## architectural decisions the implementation upholds.
 
-import ./rew/binaries/[target, manifest]
-export target, manifest
+import ./rew/[dtype, sharding, device]
+export dtype, sharding, device
 
-import ./rew/[dtype, sharding, device, buffer]
-export dtype, sharding, device, buffer
+from ./rew/buffer import BufferDonatedError
+export BufferDonatedError
 
-import ./rew/value
-export value
-
-import ./rew/openxla
-export openxla
-
-import ./rew/stablehlo/[ir, ops, verify, text]
-export ir, ops, verify, text
-
-import ./rew/[tensor, dispatch]
-export tensor, dispatch
-
-import ./rew/autograd/registry
-export registry
+from ./rew/tensor import Tensor, TensorError, TensorModeError, numElements,
+  isEager, isTrace, withSharding, shard, manualShard, replicate
+export Tensor, TensorError, TensorModeError, numElements, isEager, isTrace,
+  withSharding, shard, manualShard, replicate
 
 import ./rew/ops/[arith, unary, shape, reduce, linalg, literal, factory,
   concat, conv, pool, normalization, ternary, compare, gather,
@@ -39,41 +29,46 @@ export arith, unary, shape, reduce, linalg, literal, factory, concat, conv,
 import ./rew/[pytree, rng]
 export pytree, rng
 
-import ./rew/autograd
-export autograd
+# Install built-in VJP closures without exposing the registration API on the
+# user-level surface.
+from ./rew/autograd/rules import installAllVjpRules
+installAllVjpRules()
 
-import ./rew/transform
-export transform
+from ./rew/autograd/transform import GradError, VjpResult,
+  ValueAndGradResult, gradMode, vjp, valueAndGrad, grad
+export GradError, VjpResult, ValueAndGradResult, gradMode, vjp, valueAndGrad,
+  grad
+
+from ./rew/transform/control import CondError, ScanBody, condN, cond,
+  whileLoop, fori, caseOp, scan
+from ./rew/transform/vmap import vmap
+export CondError, ScanBody, condN, cond, whileLoop, fori, caseOp, scan, vmap
 
 import ./rew/[nn, optim]
 export nn, optim
 
-import ./rew/eager
-export eager
+from ./rew/eager import EagerError, HostShardLoader, HostByteShardLoader,
+  HostTensorShard, transferToDevice, transferToHost, fromHostF32, fromHost,
+  fromHostByteShards, fromHostShards, fromHostSharded, zerosSharded,
+  zerosLikeEager, scalarF32, scalar, toHost, toHostShards, toHostBytes, item,
+  `to`, shardToMesh, installEagerBackend
+export EagerError, HostShardLoader, HostByteShardLoader, HostTensorShard,
+  transferToDevice, transferToHost, fromHostF32, fromHost, fromHostByteShards,
+  fromHostShards, fromHostSharded, zerosSharded, zerosLikeEager, scalarF32,
+  scalar, toHost, toHostShards, toHostBytes, item, `to`, shardToMesh,
+  installEagerBackend
 
 import ./rew/serialize
 export serialize
 
-import ./rew/onnx
-export onnx
-
-import ./rew/tflite
-export tflite
-
 import ./rew/data
 export data
-
-import ./rew/pjrt/registry
-export registry
 
 import ./rew/optim/scheduler
 export scheduler
 
 import ./rew/train
 export train
-
-import ./rew/distributed as distributed_api
-export distributed_api
 
 import ./rew/safetensors
 export safetensors

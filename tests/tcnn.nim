@@ -6,6 +6,7 @@
 
 import std/[math, strutils]
 import rew
+import rew/xla
 import rew/pjrt/loader
 import rew/binaries/target
 
@@ -117,12 +118,12 @@ block cnn_full_trace:
     ]
     let inputs = ctx.traceInputs(dts, shapes)
     let lossFn = proc(p: openArray[Tensor]): Tensor =
-      let c1 = Conv2d(weight: p[0], bias: p[1],
+      let c1 = Conv2d(weight: param(p[0]), bias: param(p[1]),
         stride: [1, 1], padding: [[1, 1], [1, 1]], dilation: [1, 1])
-      let c2 = Conv2d(weight: p[2], bias: p[3],
+      let c2 = Conv2d(weight: param(p[2]), bias: param(p[3]),
         stride: [1, 1], padding: [[1, 1], [1, 1]], dilation: [1, 1])
-      let l1 = Linear(weight: p[4], bias: p[5])
-      let l2 = Linear(weight: p[6], bias: p[7])
+      let l1 = Linear(weight: param(p[4]), bias: param(p[5]))
+      let l2 = Linear(weight: param(p[6]), bias: param(p[7]))
       let xa = inputs[8]
       let ya = inputs[9]
       let h1 = relu(forward(c1, xa))

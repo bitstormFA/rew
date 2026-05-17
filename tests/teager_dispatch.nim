@@ -2,6 +2,8 @@
 
 import std/math
 import rew
+import rew/xla
+import rew/eager
 import rew/pjrt/loader
 import rew/binaries/target
 
@@ -229,8 +231,8 @@ block eager_dispatch_or_skip:
 
   block tensorProductCheck:
     let tp = TensorProduct(
-      weights: constantF32([1, 1], [2.0'f32], d),
-      cgCoeffs: constantF32([1, 1, 1, 1], [1.0'f32], d),
+      weights: param(constantF32([1, 1], [2.0'f32], d)),
+      cgCoeffs: buffer(constantF32([1, 1, 1, 1], [1.0'f32], d)),
       inIrreps: @[0],
       outIrreps: @[0],
       sharedIrreps: @[0],

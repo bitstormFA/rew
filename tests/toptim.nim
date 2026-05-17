@@ -1,6 +1,7 @@
 ## Phase 5d \u2014 SGD optimizer step over a pytree of params/grads.
 
 import rew
+import rew/xla
 
 let TestDevice = cpu(0)
 
@@ -19,7 +20,7 @@ block sgd_step_single_linear:
     let updated = opt.step(layer, grads)
     doAssert updated.weight.shape == @[4, 8]
     doAssert updated.bias.shape == @[8]
-    ctx.traceReturn([updated.weight, updated.bias])
+    ctx.traceReturn([updated.weight.value, updated.bias.value])
   let m = ctx.builder.build()
   verify(m)
 
@@ -36,7 +37,7 @@ block sgd_step_nested_pytree:
     let updated = opt.step(net, net)
     doAssert updated.l1.weight.shape == net.l1.weight.shape
     doAssert updated.l2.bias.shape == net.l2.bias.shape
-    ctx.traceReturn([updated.l1.weight, updated.l2.bias])
+    ctx.traceReturn([updated.l1.weight.value, updated.l2.bias.value])
   let m = ctx.builder.build()
   verify(m)
 

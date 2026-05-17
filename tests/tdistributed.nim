@@ -2,6 +2,9 @@
 
 import std/[os, strutils]
 import rew
+import rew/xla
+import rew/distributed
+import rew/eager
 import rew/binaries/target
 import rew/openxla/compile_options
 import rew/pjrt/[capi, loader]

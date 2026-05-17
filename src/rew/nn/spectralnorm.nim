@@ -5,6 +5,7 @@
 ## via power iteration.
 
 import ../tensor
+import ../pytree
 import ../ops/linalg
 import ../ops/arith
 import ../ops/reduce
@@ -19,8 +20,8 @@ type
     ## estimates. `nPowerIterations` controls the accuracy of the
     ## spectral norm estimate.
     inner*: L
-    u*: Tensor
-    v*: Tensor
+    u*: Buffer[Tensor]
+    v*: Buffer[Tensor]
     nPowerIterations*: int
 
 proc initSpectralNorm*[L](inner: L; weight: Tensor;
@@ -46,8 +47,8 @@ proc initSpectralNorm*[L](inner: L; weight: Tensor;
   let vData = newSeq[float32](vSize)
   SpectralNorm[L](
     inner: inner,
-    u: constantF32([outDim], uInit),
-    v: constantF32([vSize], vData),
+    u: buffer(constantF32([outDim], uInit)),
+    v: buffer(constantF32([vSize], vData)),
     nPowerIterations: nPowerIterations,
   )
 
@@ -59,8 +60,8 @@ proc spectralNormWeight(layer: SpectralNorm; weight: Tensor): Tensor {.used.} =
     vSize *= weight.shape[i]
   # Reshape weight to [outDim, vSize]
   let wMat = reshape(weight, [outDim, vSize])
-  var u = layer.u
-  var v = layer.v
+  var u: Tensor = layer.u
+  var v: Tensor = layer.v
   # Power iteration
   for _ in 0 ..< layer.nPowerIterations:
     # v = normalize(W^T @ u)

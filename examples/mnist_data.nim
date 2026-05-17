@@ -1,4 +1,4 @@
-## MNIST training with the data pipeline API.
+## MNIST training with the Dataset Pipeline API.
 ##
 ## Demonstrates the full data loading pipeline: `.npy` source through
 ## shuffle, batch, collate, and device transfer, feeding a two-layer
@@ -19,6 +19,7 @@
 
 import std/[math, os, strformat]
 import rew
+import rew/xla
 import rew/pjrt/loader
 
 const
@@ -48,8 +49,8 @@ proc initLinearEager(d: Device; key: Key; inFeat, outFeat: int): Linear =
   var w = uniformF32(keys[0], inFeat * outFeat, -bound, bound)
   var b = newSeq[float32](outFeat)
   Linear(
-    weight: f32ToDevice(d, w, [inFeat, outFeat]),
-    bias:   f32ToDevice(d, b, [outFeat]),
+    weight: param(f32ToDevice(d, w, [inFeat, outFeat])),
+    bias: param(f32ToDevice(d, b, [outFeat])),
   )
 
 # ---- synthetic dataset -----------------------------------------------------
@@ -109,7 +110,7 @@ proc run() =
   let key = initKey(42'u64)
   let keys = split(key, 4)
 
-  # ---- build data pipeline ------------------------------------------------
+  # ---- build dataset pipeline ---------------------------------------------
   let dir = getEnv("REW_MNIST_DIR")
   var pipeline: Dataset[seq[Sample]]
   if dir.len > 0:
@@ -141,8 +142,8 @@ proc run() =
     let ya = args[5]
     let lr = args[6]
     let lossFn = proc(p: openArray[Tensor]): Tensor =
-      let l1 = Linear(weight: p[0], bias: p[1])
-      let l2 = Linear(weight: p[2], bias: p[3])
+      let l1 = Linear(weight: param(p[0]), bias: param(p[1]))
+      let l2 = Linear(weight: param(p[2]), bias: param(p[3]))
       softmaxCrossEntropy(forwardMlp(l1, l2, xa), ya)
     let vr = vjp(lossFn, [args[0], args[1], args[2], args[3]])
     let grads = vr.pullback(scalarF32(1'f32))
@@ -161,7 +162,7 @@ proc run() =
   var lrHost = @[LearningRate]
   let lr = f32ToDevice(d, lrHost, [])
 
-  # ---- training loop using the data pipeline -------------------------------
+  # ---- training loop using the dataset pipeline ----------------------------
   for epoch in 1 .. TrainEpochs:
     echo &"\n  epoch {epoch}/{TrainEpochs}"
     let iter = pipeline.source()
@@ -172,11 +173,11 @@ proc run() =
       let b = collate(batchSamples)
       let (x, y) = toTensors(d, b, NumClasses)
       let outs = trainJ.call([
-        fc1.weight, fc1.bias,
-        fc2.weight, fc2.bias,
+        fc1.weight.value, fc1.bias.value,
+        fc2.weight.value, fc2.bias.value,
         x, y, lr])
-      fc1 = Linear(weight: outs[1], bias: outs[2])
-      fc2 = Linear(weight: outs[3], bias: outs[4])
+      fc1 = Linear(weight: param(outs[1]), bias: param(outs[2]))
+      fc2 = Linear(weight: param(outs[3]), bias: param(outs[4]))
       let loss = readBackF32(outs[0])[0]
       let acc = accuracy(forwardMlp(fc1, fc2, x), y)
       inc step

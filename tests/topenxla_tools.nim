@@ -2,6 +2,7 @@
 
 import std/[os, strutils]
 import rew
+import rew/xla
 
 block tool_names_and_env:
   doAssert toolName(otRunHloModule) == "run_hlo_module"

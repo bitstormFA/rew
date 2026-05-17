@@ -9,6 +9,7 @@
 ## differentiability.
 
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/linalg
@@ -18,7 +19,7 @@ import ./init
 type
   Embedding* = object
     ## Embedding lookup table. `weight` is `[vocabSize, embedDim]`.
-    weight*: Tensor
+    weight*: Param[Tensor]
     vocabSize*: int
     embedDim*: int
 
@@ -30,7 +31,7 @@ proc initEmbedding*(key: Key; vocabSize, embedDim: int): Embedding =
       "initEmbedding: vocabSize and embedDim must be positive")
   let data = normalF32(key, vocabSize * embedDim, 0'f32, 1'f32)
   Embedding(
-    weight: constantF32([vocabSize, embedDim], data),
+    weight: param(constantF32([vocabSize, embedDim], data)),
     vocabSize: vocabSize,
     embedDim: embedDim,
   )

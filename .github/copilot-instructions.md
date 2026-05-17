@@ -35,8 +35,9 @@ contract lives in [docs/high-level-api.md](../docs/high-level-api.md).
    under `src/rew/nn/` or `src/rew/optim/`. PRNG is explicit and threaded.
 9. **Public API surface is tiered.** `import rew` is the high-level surface;
    `import rew/xla` is raw compiler/lowering/JIT; `import rew/dev` is
-   extension and plugin internals. Other modules under `src/rew/<layer>/...`
-   may change freely.
+   extension internals and plugin target/manifest tooling. Raw PJRT C modules
+   remain explicit specialist imports under `rew/pjrt/*`; other modules under
+   `src/rew/<layer>/...` may change freely.
 10. **Edit only the layer you came for.** If you find yourself modifying a
     different layer, stop and ask. Each layer has a per-file
     `.instructions.md` that auto-attaches when you touch it.

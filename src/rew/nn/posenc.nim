@@ -5,6 +5,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../dtype
 import ../device
 import ../rng
@@ -41,7 +42,7 @@ proc sinusoidalPositionEncoding*(seqLen, embedDim: int): Tensor =
 type
   LearnedPositionEncoding* = object
     ## Learnable position embedding table.
-    weight*: Tensor
+    weight*: Param[Tensor]
     maxLen*: int
     embedDim*: int
 
@@ -51,7 +52,7 @@ proc initLearnedPositionEncoding*(key: Key; maxLen, embedDim: int):
   let data = normalF32(key, maxLen * embedDim, 0'f32,
     1'f32 / sqrt(float32(embedDim)))
   LearnedPositionEncoding(
-    weight: constantF32([maxLen, embedDim], data),
+    weight: param(constantF32([maxLen, embedDim], data)),
     maxLen: maxLen,
     embedDim: embedDim,
   )

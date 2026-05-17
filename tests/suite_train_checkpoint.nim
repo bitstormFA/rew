@@ -1,4 +1,4 @@
-## Phase 8 — Checkpoint: TrainerAccess pointer roundtrip, formatFilename.
+## Phase 8 — Checkpoint callback and formatFilename.
 
 block checkpoint_init_defaults:
   let ckpt = initCheckpoint()
@@ -24,20 +24,21 @@ block checkpoint_init_custom:
   doAssert ckpt.saveTopK == 3
   doAssert ckpt.filename == "model-epoch={epoch}"
 
-block trainer_access_pointer_roundtrip:
+block checkpoint_writer_callback:
   var saveCalled = false
   var savePath = ""
-  var access = TrainerAccess(
-    saveCheckpoint: proc(path: string; ctx: TrainContext) {.closure.} =
-      saveCalled = true
-      savePath = path)
-  var accessPtr = addr(access)
-  let trainerPtr = cast[pointer](accessPtr)
-  let back = cast[ptr TrainerAccess](trainerPtr)
+  let ckpt = initCheckpoint(monitor = "val/loss", dirPath = "/tmp/test_ckpts")
+  let cb = ckpt.toCallback()
   var ctx = initTrainContext(tmFit)
-  back.saveCheckpoint("/tmp/test_path", ctx)
+  ctx.epochMetrics.add MetricEntry(name: "val/loss", value: 0.5'f32)
+  let writer: CheckpointWriter =
+    proc(path: string; ctx: TrainContext) {.closure.} =
+      discard ctx
+      saveCalled = true
+      savePath = path
+  cb.onTrainEpochEnd.get()(ctx, writer)
   doAssert saveCalled
-  doAssert savePath == "/tmp/test_path"
+  doAssert savePath.len > 0
 
 block checkpoint_format_filename:
   # The formatFilename func is internal; test substitution through init

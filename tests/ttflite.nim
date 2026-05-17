@@ -2,6 +2,8 @@
 
 import std/os
 import rew
+import rew/xla
+import rew/tflite
 
 proc tmpPath(name: string): string =
   getTempDir() / ("rew_tflite_" & name)

@@ -2,6 +2,7 @@
 
 import std/strutils
 import rew
+import rew/xla
 
 let TestDevice = cpu(0)
 

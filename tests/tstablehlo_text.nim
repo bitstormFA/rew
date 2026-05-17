@@ -5,6 +5,7 @@
 ## presence on more complex modules.
 
 import rew
+import rew/xla
 import std/strutils
 
 template assertContains(haystack, needle: string) =

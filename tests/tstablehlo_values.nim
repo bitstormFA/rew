@@ -1,6 +1,7 @@
 ## StableHLO general value coverage: tokens and tuples.
 
 import rew
+import rew/xla
 import std/strutils
 
 block create_token_after_all_tuple_and_get_tuple_element:

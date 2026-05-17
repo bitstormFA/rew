@@ -1,51 +1,29 @@
-## Phase 8 — OptimizerConfig types and OptimizerKind variants.
+## Phase 8 — GradientTransform optimizer language.
 
-block optimizer_kind_sgd:
-  let ok = OptimizerKind(kind: otSgd,
-      sgd: initSgd(scalarF32(cpu(0), 0.1'f32)))
-  doAssert ok.kind == otSgd
+block gradient_transform_sgd:
+  let tx = sgd(scalarF32(cpu(0), 0.1'f32))
+  doAssert tx.kind == gtkSgd
 
-block optimizer_kind_adam:
-  let ok = OptimizerKind(kind: otAdam,
-      adam: initAdam(scalarF32(cpu(0), 0.001'f32)))
-  doAssert ok.kind == otAdam
+block gradient_transform_adamw:
+  let tx = adamw(scalarF32(cpu(0), 0.001'f32))
+  doAssert tx.kind == gtkAdamW
 
-block optimizer_kind_adamw:
-  let ok = OptimizerKind(kind: otAdamW,
-      adamw: initAdamW(scalarF32(cpu(0), 0.001'f32)))
-  doAssert ok.kind == otAdamW
+block gradient_transform_chain:
+  let tx = chain(clipByGlobalNorm(1'f32),
+    sgd(scalarF32(cpu(0), 0.1'f32)))
+  doAssert tx.kind == gtkChain
+  doAssert tx.transforms.len == 2
 
-block optimizer_kind_momentum:
-  let ok = OptimizerKind(kind: otMomentumSgd,
-      momentum: initMomentumSgd(scalarF32(cpu(0), 0.01'f32)))
-  doAssert ok.kind == otMomentumSgd
+block gradient_transform_schedule:
+  let schedule = proc(step: int): Tensor {.closure.} =
+    scalarF32(cpu(0), float32(step + 1))
+  let tx = chain(scaleBySchedule(schedule),
+    sgd(scalarF32(cpu(0), 0.1'f32)))
+  let state = initState(tx, scalarF32(cpu(0), 1'f32))
+  doAssert state.kind == gtkChain
+  doAssert state.states.len == 2
 
-block optimizer_state_sgd_has_no_state:
-  let opt = OptimizerKind(kind: otSgd,
-      sgd: initSgd(scalarF32(cpu(0), 0.1'f32)))
-  doAssert opt.kind == otSgd
-
-block optimizer_config:
-  let ok = OptimizerKind(kind: otSgd,
-      sgd: initSgd(scalarF32(cpu(0), 0.1'f32)))
-  let cfg = initOptimizerConfig(ok)
-  doAssert cfg.frequency == 1
-  doAssert isSome(cfg.scheduler) == false
-
-block optimizer_config_with_scheduler:
-  let ok = OptimizerKind(kind: otSgd,
-      sgd: initSgd(scalarF32(cpu(0), 0.1'f32)))
-  let sc = SchedulerConfig(
-    scheduler: SchedulerKind(kind: stStepLR,
-        stepLr: initStepLR(stepSize = 10)),
-    interval: siEpoch,
-    frequency: 1,
-  )
-  let cfg = initOptimizerConfig(ok, scheduler = some(sc))
-  doAssert isSome(cfg.scheduler)
-
-block optimizer_config_frequency:
-  let ok = OptimizerKind(kind: otSgd,
-      sgd: initSgd(scalarF32(cpu(0), 0.1'f32)))
-  let cfg = initOptimizerConfig(ok, frequency = 4)
-  doAssert cfg.frequency == 4
+block gradient_transform_freeze:
+  let tx = chain(freeze(["weight"]), sgd(scalarF32(cpu(0), 0.1'f32)))
+  doAssert tx.kind == gtkChain
+  doAssert tx.transforms[0].kind == gtkFreeze

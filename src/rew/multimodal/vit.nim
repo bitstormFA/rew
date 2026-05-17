@@ -6,6 +6,7 @@
 
 import ../rng
 import ../tensor
+import ../pytree
 import ../ops/literal
 import ../ops/arith
 import ../ops/linalg
@@ -28,8 +29,8 @@ type
 
   ViT* = object
     patchProj*: Linear
-    classToken*: Tensor
-    positionEmbedding*: Tensor
+    classToken*: Param[Tensor]
+    positionEmbedding*: Param[Tensor]
     layers*: seq[TransformerEncoder]
     norm*: LayerNorm
     head*: Linear
@@ -104,9 +105,9 @@ proc initViT*(key: Key; config: ViTConfig): ViT =
   let posData = uniformF32(keys[2], posCount, -0.02'f32, 0.02'f32)
   ViT(
     patchProj: initLinear(keys[0], config.patchDim, config.hiddenSize),
-    classToken: constantF32([1, 1, config.hiddenSize], tokenData),
-    positionEmbedding: constantF32(
-      [1, config.numPatches + 1, config.hiddenSize], posData),
+    classToken: param(constantF32([1, 1, config.hiddenSize], tokenData)),
+    positionEmbedding: param(constantF32(
+      [1, config.numPatches + 1, config.hiddenSize], posData)),
     layers: layers,
     norm: initLayerNorm([config.hiddenSize], config.layerNormEps),
     head: initLinear(keys[config.numLayers + 3],

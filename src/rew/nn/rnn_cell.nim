@@ -7,6 +7,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/arith
@@ -22,31 +23,31 @@ type
     ## Single LSTM cell. All weight matrices are fused into `wIh` and `wHh`
     ## for efficiency: `wIh` is `[4*hiddenDim, inputDim]` (i, f, g, o stacked),
     ## `wHh` is `[4*hiddenDim, hiddenDim]`.
-    wIh*: Tensor
-    wHh*: Tensor
-    bIh*: Tensor
-    bHh*: Tensor
+    wIh*: Param[Tensor]
+    wHh*: Param[Tensor]
+    bIh*: Param[Tensor]
+    bHh*: Param[Tensor]
     inputDim*: int
     hiddenDim*: int
 
   LSTMState* = object
     ## LSTM hidden state and cell state, each `[batch, hiddenDim]`.
-    h*: Tensor
-    c*: Tensor
+    h*: Buffer[Tensor]
+    c*: Buffer[Tensor]
 
   GRUCell* = object
     ## Single GRU cell. Weights are fused: `wIh` is `[3*hiddenDim, inputDim]`
     ## (r, z, n stacked), `wHh` is `[3*hiddenDim, hiddenDim]`.
-    wIh*: Tensor
-    wHh*: Tensor
-    bIh*: Tensor
-    bHh*: Tensor
+    wIh*: Param[Tensor]
+    wHh*: Param[Tensor]
+    bIh*: Param[Tensor]
+    bHh*: Param[Tensor]
     inputDim*: int
     hiddenDim*: int
 
   GRUState* = object
     ## GRU hidden state `[batch, hiddenDim]`.
-    h*: Tensor
+    h*: Buffer[Tensor]
 
 # ---- LSTMCell ----------------------------------------------------------------
 
@@ -68,10 +69,10 @@ proc initLSTMCell*(key: Key; inputDim, hiddenDim: int): LSTMCell =
   for i in hiddenDim ..< 2 * hiddenDim:
     bihData[i] = 1'f32
   LSTMCell(
-    wIh: constantF32([4 * hiddenDim, inputDim], wihData),
-    wHh: constantF32([4 * hiddenDim, hiddenDim], whhData),
-    bIh: constantF32([4 * hiddenDim], bihData),
-    bHh: constantF32([4 * hiddenDim], bhhData),
+    wIh: param(constantF32([4 * hiddenDim, inputDim], wihData)),
+    wHh: param(constantF32([4 * hiddenDim, hiddenDim], whhData)),
+    bIh: param(constantF32([4 * hiddenDim], bihData)),
+    bHh: param(constantF32([4 * hiddenDim], bhhData)),
     inputDim: inputDim,
     hiddenDim: hiddenDim,
   )
@@ -81,8 +82,8 @@ proc initLSTMState*(batchSize, hiddenDim: int): LSTMState =
   let hData = newSeq[float32](batchSize * hiddenDim)
   let cData = newSeq[float32](batchSize * hiddenDim)
   LSTMState(
-    h: constantF32([batchSize, hiddenDim], hData),
-    c: constantF32([batchSize, hiddenDim], cData),
+    h: buffer(constantF32([batchSize, hiddenDim], hData)),
+    c: buffer(constantF32([batchSize, hiddenDim], cData)),
   )
 
 proc forward*(cell: LSTMCell; x: Tensor; state: LSTMState): (Tensor, LSTMState) =
@@ -110,7 +111,7 @@ proc forward*(cell: LSTMCell; x: Tensor; state: LSTMState): (Tensor, LSTMState) 
   let cNew = add(mul(f, state.c), mul(i, g))
   # h_new = o * tanh(c_new)
   let hNew = mul(o, tanh(cNew))
-  (hNew, LSTMState(h: hNew, c: cNew))
+  (hNew, LSTMState(h: buffer(hNew), c: buffer(cNew)))
 
 # ---- GRUCell -----------------------------------------------------------------
 
@@ -128,10 +129,10 @@ proc initGRUCell*(key: Key; inputDim, hiddenDim: int): GRUCell =
   let bihData = newSeq[float32](3 * hiddenDim)
   let bhhData = newSeq[float32](3 * hiddenDim)
   GRUCell(
-    wIh: constantF32([3 * hiddenDim, inputDim], wihData),
-    wHh: constantF32([3 * hiddenDim, hiddenDim], whhData),
-    bIh: constantF32([3 * hiddenDim], bihData),
-    bHh: constantF32([3 * hiddenDim], bhhData),
+    wIh: param(constantF32([3 * hiddenDim, inputDim], wihData)),
+    wHh: param(constantF32([3 * hiddenDim, hiddenDim], whhData)),
+    bIh: param(constantF32([3 * hiddenDim], bihData)),
+    bHh: param(constantF32([3 * hiddenDim], bhhData)),
     inputDim: inputDim,
     hiddenDim: hiddenDim,
   )
@@ -139,7 +140,7 @@ proc initGRUCell*(key: Key; inputDim, hiddenDim: int): GRUCell =
 proc initGRUState*(batchSize, hiddenDim: int): GRUState =
   ## Initializes zero GRU state for a given batch size.
   let hData = newSeq[float32](batchSize * hiddenDim)
-  GRUState(h: constantF32([batchSize, hiddenDim], hData))
+  GRUState(h: buffer(constantF32([batchSize, hiddenDim], hData)))
 
 proc forward*(cell: GRUCell; x: Tensor; state: GRUState): (Tensor, GRUState) =
   ## Single GRU timestep. `x` is `[batch, inputDim]`, state holds `h` of
@@ -175,4 +176,4 @@ proc forward*(cell: GRUCell; x: Tensor; state: GRUState): (Tensor, GRUState) =
   var dims: seq[int] = @[]
   let oneB = broadcastTo(one, z.shape, dims)
   let hNew = add(mul(sub(oneB, z), n), mul(z, state.h))
-  (hNew, GRUState(h: hNew))
+  (hNew, GRUState(h: buffer(hNew)))

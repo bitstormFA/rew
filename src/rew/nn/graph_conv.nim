@@ -6,6 +6,7 @@
 ## Pure value type following rew's functional nn invariant.
 
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/arith
@@ -23,7 +24,7 @@ type
     aggr*: AggregationType
     addSelf*: bool              ## If true, add self features to aggregation
     addBias*: bool
-    bias*: Tensor               ## [outChannels]
+    bias*: Param[Tensor]        ## [outChannels]
 
 proc initGraphConv*(key: Key; inChannels, outChannels: int;
     aggr: AggregationType = pAggrSum; addSelf: bool = true;
@@ -39,7 +40,7 @@ proc initGraphConv*(key: Key; inChannels, outChannels: int;
   )
   if bias:
     let bData = zerosF32(outChannels)
-    result.bias = constantF32(@[outChannels], bData)
+    result.bias = param(constantF32(@[outChannels], bData))
 
 proc forward*(layer: GraphConv; x, edgeIndex: Tensor): Tensor =
   ## Forward pass of GraphConv.

@@ -2,6 +2,7 @@
 ## `reduceSum`/`reduceMax`/`reduceMin` dispatch ops in trace mode.
 
 import rew
+import rew/dev
 import std/strutils
 
 let TestDevice = cpu(0)

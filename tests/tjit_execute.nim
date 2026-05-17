@@ -2,6 +2,7 @@
 
 import std/math
 import rew
+import rew/xla
 import rew/pjrt/loader
 import rew/binaries/target
 
@@ -267,8 +268,8 @@ block jit_execute_or_skip:
   block tensorProductEagerVsJit:
     let f = proc(args: openArray[Tensor]): seq[Tensor] =
       let tp = TensorProduct(
-        weights: constantF32([1, 1], [2.0'f32]),
-        cgCoeffs: constantF32([1, 1, 1, 1], [1.0'f32]),
+        weights: param(constantF32([1, 1], [2.0'f32])),
+        cgCoeffs: buffer(constantF32([1, 1, 1, 1], [1.0'f32])),
         inIrreps: @[0],
         outIrreps: @[0],
         sharedIrreps: @[0],

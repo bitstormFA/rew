@@ -1,6 +1,7 @@
 ## Phase 5a — pytree flatten/unflatten/map over tensor-bearing types.
 
 import rew
+import rew/xla
 
 let TestDevice = cpu(0)
 

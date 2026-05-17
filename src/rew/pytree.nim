@@ -12,6 +12,8 @@
 ## - `Param[T]` marks trainable state.
 ## - `Buffer[T]` marks non-trainable state that still participates in device
 ##   transfer and checkpointing.
+## - Bare `Tensor` leaves are structural leaves. They are flattened for
+##   transforms and serialization, but they are not trainable model leaves.
 ## - `treeFlatten(t)` returns the flat `seq[Tensor]` of all tensor-bearing
 ##   leaves in field-declaration order.
 ## - `treeLeaves(t)` returns path/kind metadata for every tensor-bearing leaf.
@@ -71,12 +73,6 @@ converter paramToTensor*(p: Param[Tensor]): Tensor =
 
 converter bufferToTensor*(b: Buffer[Tensor]): Tensor =
   b.value
-
-converter tensorToParam*(t: Tensor): Param[Tensor] =
-  Param[Tensor](value: t)
-
-converter tensorToBuffer*(t: Tensor): Buffer[Tensor] =
-  Buffer[Tensor](value: t)
 
 func shape*(p: Param[Tensor]): seq[int] =
   p.value.shape
@@ -184,10 +180,9 @@ proc treePaths*[T](v: T): seq[string] =
     result.add leaf.path
 
 proc paramsOf*[T](v: T): seq[string] =
-  ## Returns paths for trainable leaves. Bare `Tensor` leaves are treated as
-  ## trainable for compatibility with plain value layers.
+  ## Returns paths for trainable leaves.
   for leaf in treeLeaves(v):
-    if leaf.kind in {tlParam, tlTensor}:
+    if leaf.kind == tlParam:
       result.add leaf.path
 
 proc buffersOf*[T](v: T): seq[string] =

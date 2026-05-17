@@ -1,8 +1,7 @@
 ## `Linear` \u2014 fully connected layer `y = x @ W + b`.
 ##
-## Pure value type: `weight` and `bias` are plain `Tensor` fields, so
-## `treeFlatten` / `treeUnflatten` see them as the layer's two leaves
-## without any registration step.
+## Pure value type: `weight` and `bias` are explicit `Param[Tensor]`
+## trainable leaves.
 ##
 ## `initLinear` materialises weights through the public literal path, so
 ## it works in both trace mode and eager mode after an eager backend is
@@ -11,6 +10,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/arith
@@ -21,8 +21,8 @@ type
   Linear* = object
     ## Affine layer carrying its weight matrix and bias vector. `forward`
     ## treats the leading axis of `x` as the batch dimension.
-    weight*: Tensor   ## shape `[inFeatures, outFeatures]`, float32
-    bias*: Tensor     ## shape `[outFeatures]`, float32
+    weight*: Param[Tensor]   ## shape `[inFeatures, outFeatures]`, float32
+    bias*: Param[Tensor]     ## shape `[outFeatures]`, float32
 
 proc initLinear*(key: Key; inFeatures, outFeatures: int): Linear =
   ## Constructs a `Linear` with He-style uniform initialization
@@ -36,8 +36,8 @@ proc initLinear*(key: Key; inFeatures, outFeatures: int): Linear =
   let wData = uniformF32(keys[0], inFeatures * outFeatures, -bound, bound)
   let bData = newSeq[float32](outFeatures)
   result = Linear(
-    weight: constantF32([inFeatures, outFeatures], wData),
-    bias: constantF32([outFeatures], bData),
+    weight: param(constantF32([inFeatures, outFeatures], wData)),
+    bias: param(constantF32([outFeatures], bData)),
   )
 
 proc forward*(layer: Linear; x: Tensor): Tensor =

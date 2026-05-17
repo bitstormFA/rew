@@ -1,6 +1,7 @@
 ## Tests for SwiGLU and GatedFeedForward.
 
 import rew
+import rew/xla
 import std/strutils
 
 let TestDevice = cpu(0)

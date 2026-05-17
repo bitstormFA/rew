@@ -18,7 +18,7 @@ type
     source*: DatasetFn[T]
 
   DataError* = object of CatchableError
-    ## Raised by data pipeline operations on validation failures.
+    ## Raised by dataset pipeline operations on validation failures.
 
 proc toDataset*[T](fn: DatasetFn[T]): Dataset[T] =
   ## Wraps a bare `DatasetFn[T]` into a `Dataset[T]` pipeline object.

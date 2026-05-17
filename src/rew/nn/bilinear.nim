@@ -4,6 +4,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/arith
@@ -16,8 +17,8 @@ type
     ## Bilinear layer: `x1^T A x2 + b`.
     ## `weight` has shape `[outFeatures, in1Features, in2Features]`.
     ## `bias` has shape `[outFeatures]`.
-    weight*: Tensor
-    bias*: Tensor
+    weight*: Param[Tensor]
+    bias*: Param[Tensor]
 
 proc initBilinear*(key: Key; in1Features, in2Features, outFeatures: int): Bilinear =
   ## Constructs a Bilinear layer with Kaiming uniform init.
@@ -30,8 +31,8 @@ proc initBilinear*(key: Key; in1Features, in2Features, outFeatures: int): Biline
   let wData = uniformF32(keys[0], wCount, -bound, bound)
   let bData = newSeq[float32](outFeatures)
   Bilinear(
-    weight: constantF32([outFeatures, in1Features, in2Features], wData),
-    bias: constantF32([outFeatures], bData),
+    weight: param(constantF32([outFeatures, in1Features, in2Features], wData)),
+    bias: param(constantF32([outFeatures], bData)),
   )
 
 proc forward*(layer: Bilinear; x1, x2: Tensor): Tensor =

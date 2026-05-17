@@ -5,6 +5,7 @@
 ## time axis (axis=1 in NTC layout).
 
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/shape
 import ../ops/concat
@@ -89,8 +90,8 @@ proc forward*(layer: LSTM; x: Tensor; states: LSTMStates): (Tensor, LSTMStates) 
     var dirOutputs: seq[Tensor] = @[]
     var layerNewStates: seq[LSTMState] = @[]
     for d in 0 ..< numDirs:
-      var h = states.states[l][d].h
-      var c = states.states[l][d].c
+      var h: Tensor = states.states[l][d].h
+      var c: Tensor = states.states[l][d].c
       var stepOutputs: seq[Tensor] = @[]
       if d == 0:
         # Forward direction: iterate 0..seqLen-1
@@ -98,7 +99,8 @@ proc forward*(layer: LSTM; x: Tensor; states: LSTMStates): (Tensor, LSTMStates) 
           let xt = slice(layerOutput, [0, s, 0],
             [batchSize, s + 1, layerOutput.shape[2]], [1, 1, 1])
           let xt2d = reshape(xt, [batchSize, layerOutput.shape[2]])
-          let (hNew, newState) = layer.cells[l][d].forward(xt2d, LSTMState(h: h, c: c))
+          let (hNew, newState) = layer.cells[l][d].forward(xt2d,
+            LSTMState(h: buffer(h), c: buffer(c)))
           h = hNew
           c = newState.c
           stepOutputs.add hNew
@@ -109,7 +111,8 @@ proc forward*(layer: LSTM; x: Tensor; states: LSTMStates): (Tensor, LSTMStates) 
           let xt = slice(layerOutput, [0, si, 0],
             [batchSize, si + 1, layerOutput.shape[2]], [1, 1, 1])
           let xt2d = reshape(xt, [batchSize, layerOutput.shape[2]])
-          let (hNew, newState) = layer.cells[l][d].forward(xt2d, LSTMState(h: h, c: c))
+          let (hNew, newState) = layer.cells[l][d].forward(xt2d,
+            LSTMState(h: buffer(h), c: buffer(c)))
           h = hNew
           c = newState.c
           stepOutputs.add hNew
@@ -118,7 +121,7 @@ proc forward*(layer: LSTM; x: Tensor; states: LSTMStates): (Tensor, LSTMStates) 
         for i, t in stepOutputs:
           reversed[stepOutputs.len - 1 - i] = t
         dirOutputs.add stack(reversed, 1)
-      layerNewStates.add LSTMState(h: h, c: c)
+      layerNewStates.add LSTMState(h: buffer(h), c: buffer(c))
     # Concatenate direction outputs
     if numDirs == 2:
       layerOutput = concat(dirOutputs, 2)
@@ -179,14 +182,15 @@ proc forward*(layer: GRU; x: Tensor; states: GRUStates): (Tensor, GRUStates) =
     var dirOutputs: seq[Tensor] = @[]
     var layerNewStates: seq[GRUState] = @[]
     for d in 0 ..< numDirs:
-      var h = states.states[l][d].h
+      var h: Tensor = states.states[l][d].h
       var stepOutputs: seq[Tensor] = @[]
       if d == 0:
         for s in 0 ..< seqLen:
           let xt = slice(layerOutput, [0, s, 0],
             [batchSize, s + 1, layerOutput.shape[2]], [1, 1, 1])
           let xt2d = reshape(xt, [batchSize, layerOutput.shape[2]])
-          let (hNew, _) = layer.cells[l][d].forward(xt2d, GRUState(h: h))
+          let (hNew, _) = layer.cells[l][d].forward(xt2d,
+            GRUState(h: buffer(h)))
           h = hNew
           stepOutputs.add h
         dirOutputs.add stack(stepOutputs, 1)
@@ -195,14 +199,15 @@ proc forward*(layer: GRU; x: Tensor; states: GRUStates): (Tensor, GRUStates) =
           let xt = slice(layerOutput, [0, si, 0],
             [batchSize, si + 1, layerOutput.shape[2]], [1, 1, 1])
           let xt2d = reshape(xt, [batchSize, layerOutput.shape[2]])
-          let (hNew, _) = layer.cells[l][d].forward(xt2d, GRUState(h: h))
+          let (hNew, _) = layer.cells[l][d].forward(xt2d,
+            GRUState(h: buffer(h)))
           h = hNew
           stepOutputs.add h
         var reversed = newSeq[Tensor](stepOutputs.len)
         for i, t in stepOutputs:
           reversed[stepOutputs.len - 1 - i] = t
         dirOutputs.add stack(reversed, 1)
-      layerNewStates.add GRUState(h: h)
+      layerNewStates.add GRUState(h: buffer(h))
     if numDirs == 2:
       layerOutput = concat(dirOutputs, 2)
     else:

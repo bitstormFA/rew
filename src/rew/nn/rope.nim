@@ -10,6 +10,7 @@
 
 import std/math
 import ../tensor
+import ../pytree
 import ../rng
 import ../ops/literal
 import ../ops/arith
@@ -23,8 +24,8 @@ type
     ## for up to `maxSeqLen` positions. The `theta` parameter controls the
     ## base frequency (default 10000.0 as in the original paper; Llama uses
     ## 500000.0).
-    cosCached*: Tensor  ## shape [maxSeqLen, headDim]
-    sinCached*: Tensor  ## shape [maxSeqLen, headDim]
+    cosCached*: Buffer[Tensor]  ## shape [maxSeqLen, headDim]
+    sinCached*: Buffer[Tensor]  ## shape [maxSeqLen, headDim]
     theta*: float64
     headDim*: int
     maxSeqLen*: int
@@ -39,14 +40,14 @@ type
   YarnRotaryPositionEncoding* = object
     ## YaRN-extended RoPE. Stores separate cos/sin tables for the
     ## extended context window.
-    cosExt*: Tensor
-    sinExt*: Tensor
+    cosExt*: Buffer[Tensor]
+    sinExt*: Buffer[Tensor]
     yarnConfig*: YarnConfig
     headDim*: int
 
   AlibiBias* = object
     ## ALiBi (Attention with Linear Biases) — Press et al. (2022).
-    biases*: Tensor  ## shape [numHeads, maxSeqLen, maxSeqLen]
+    biases*: Buffer[Tensor]  ## shape [numHeads, maxSeqLen, maxSeqLen]
     numHeads*: int
     maxSeqLen*: int
 
@@ -136,8 +137,8 @@ proc initRotaryPositionEncoding*(headDim: int;
       sinVals[base] = sin(angle)
       sinVals[base + 1] = sin(angle)
   RotaryPositionEncoding(
-    cosCached: constantF32([maxSeqLen, headDim], cosVals),
-    sinCached: constantF32([maxSeqLen, headDim], sinVals),
+    cosCached: buffer(constantF32([maxSeqLen, headDim], cosVals)),
+    sinCached: buffer(constantF32([maxSeqLen, headDim], sinVals)),
     theta: theta,
     headDim: headDim,
     maxSeqLen: maxSeqLen,
@@ -214,8 +215,8 @@ proc initYarnRotaryPositionEncoding*(headDim: int;
       sinVals[base] = sin(angle)
       sinVals[base + 1] = sin(angle)
   YarnRotaryPositionEncoding(
-    cosExt: constantF32([config.extendedMaxSeqLen, headDim], cosVals),
-    sinExt: constantF32([config.extendedMaxSeqLen, headDim], sinVals),
+    cosExt: buffer(constantF32([config.extendedMaxSeqLen, headDim], cosVals)),
+    sinExt: buffer(constantF32([config.extendedMaxSeqLen, headDim], sinVals)),
     yarnConfig: config,
     headDim: headDim,
   )
@@ -270,7 +271,7 @@ proc initAlibiBias*(numHeads, maxSeqLen: int): AlibiBias =
         else:
           biasData[idx] = slope * float32(i - j)
   AlibiBias(
-    biases: constantF32([numHeads, maxSeqLen, maxSeqLen], biasData),
+    biases: buffer(constantF32([numHeads, maxSeqLen, maxSeqLen], biasData)),
     numHeads: numHeads,
     maxSeqLen: maxSeqLen,
   )

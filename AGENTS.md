@@ -22,7 +22,9 @@ matching the layer you are about to edit before making changes.
 - No macro `jit`, no `requires_grad` flag, no implicit host or cross-device
   transfers.
 - Public API is tiered: `import rew` for high-level user code, `import rew/xla`
-  for raw compiler/lowering/JIT, and `import rew/dev` for extension internals.
+  for raw compiler/lowering/JIT, and `import rew/dev` for extension internals
+  plus plugin target/manifest tooling. Raw PJRT C modules stay under
+  `rew/pjrt/*`.
 - High-level API changes must follow `docs/high-level-api.md`; new high-level
   examples should use `TrainState` and `compileTrainStep`, not raw `JitFn`
   plumbing.

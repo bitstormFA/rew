@@ -7,6 +7,8 @@
 ##   * the no-eager-backend error path (Phase 7 will fill this in)
 
 import rew
+import rew/dev
+import rew/buffer
 import rew/pjrt/capi
 import rew/binaries/target
 import std/strutils
