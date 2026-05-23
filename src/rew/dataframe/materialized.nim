@@ -65,6 +65,8 @@ type
     ## Mapping from a batch field to one or more DataFrame columns.
     fieldName*: string
     columns*: seq[string]
+    dtype*: DType
+    hasDType*: bool
 
   BatchMapping* = object
     ## Explicit DataFrame column-to-batch mapping.
@@ -111,11 +113,39 @@ proc columnTable*(mapping: BatchMapping): Table[string, BatchFieldSpec] =
   for spec in mapping.fields:
     result[spec.fieldName] = spec
 
+func tensorField*(fieldName, column: string;
+    dtype: DType = dtFloat32): BatchFieldSpec =
+  ## Maps one DataFrame column to a tensor batch field.
+  if fieldName.len == 0:
+    raise newException(DataFrameError, "tensorField fieldName must not be empty")
+  if column.len == 0:
+    raise newException(DataFrameError, "tensorField column must not be empty")
+  BatchFieldSpec(fieldName: fieldName, columns: @[column], dtype: dtype,
+    hasDType: true)
+
+func tensorField*(fieldName: string; columns: openArray[string];
+    dtype: DType = dtFloat32): BatchFieldSpec =
+  ## Maps one or more DataFrame columns to a tensor batch field.
+  if fieldName.len == 0:
+    raise newException(DataFrameError, "tensorField fieldName must not be empty")
+  if columns.len == 0:
+    raise newException(DataFrameError, "tensorField columns must not be empty")
+  for column in columns:
+    if column.len == 0:
+      raise newException(DataFrameError,
+        "tensorField columns must not contain empty names")
+  BatchFieldSpec(fieldName: fieldName, columns: @columns, dtype: dtype,
+    hasDType: true)
+
+func batchMapping*[Batch](fields: varargs[BatchFieldSpec]): BatchMapping =
+  ## Creates an explicit DataFrame column-to-`Batch` mapping.
+  discard default(Batch)
+  BatchMapping(fields: @fields)
+
 proc autoBatchMapping*[Batch](): BatchMapping =
   ## Maps every Tensor field in `Batch` to a DataFrame column with the same
   ## name. Non-tensor fields keep their default value.
   var proto: Batch
   for name, field in fieldPairs(proto):
     when field is Tensor:
-      result.fields.add BatchFieldSpec(fieldName: name, columns: @[name])
-
+      result.fields.add tensorField(name, name, dtFloat32)

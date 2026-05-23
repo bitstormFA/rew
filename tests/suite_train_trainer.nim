@@ -78,9 +78,9 @@ else:
   block trainer_fit_custom_step:
     var state = initTrainState(initTinyModel(d), sgd(scalarF32(d, 0.1'f32)))
     var compiled = compileTrainStep(tinyLoss, state, initRuntime(akCpu))
-    let step: TrainStepFn[TinyModel, TinyBatch] =
-      proc(state: TrainState[TinyModel]; batch: TinyBatch;
-          ctx: CallCtx): StepResult[TrainState[TinyModel]] =
+    let step: TrainStepFn[TinyModel, TinyBatch, Sgd, EmptyOptState] =
+      proc(state: TrainState[TinyModel, Sgd, EmptyOptState]; batch: TinyBatch;
+          ctx: CallCtx): StepResult[TrainState[TinyModel, Sgd, EmptyOptState]] =
         discard ctx
         compiled.call(state, batch)
     let data = makeTinyData(d, 2)

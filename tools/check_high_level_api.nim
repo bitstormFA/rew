@@ -59,12 +59,17 @@ for needle in [
   "value state + typed steps",
   "Param[Tensor]",
   "Buffer[Tensor]",
+  "TreePath",
+  "PathSet",
   "Runtime",
-  "TrainState[M]",
+  "TrainState[M, O, S]",
   "StepResult",
   "Dataset Pipeline",
   "DataSplits",
-  "GradientTransform",
+  "Pipeline[Steps]",
+  "optimizer protocol",
+  "BatchMapping",
+  "ProbCtx",
   "Bare `Tensor` leaves",
   "raw JIT handles",
   "import rew/xla",
@@ -77,7 +82,6 @@ for needle in [
     "docs/high-level-api.md must define the coherent API term: " & needle)
 
 for forbidden in [
-  "TrainState[M, O, S]",
   "AdamWState",
   "applyUpdates(state, grads)",
   "Plain tensor fields may remain trainable",
@@ -88,7 +92,7 @@ for forbidden in [
   requireNotContains(
     "docs/high-level-api.md",
     forbidden,
-    "docs/high-level-api.md must use canonical TrainState[M] language, not: " &
+    "docs/high-level-api.md must use canonical typed value-program language, not: " &
       forbidden)
 
 for path in [

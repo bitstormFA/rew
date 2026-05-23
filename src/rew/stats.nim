@@ -53,6 +53,10 @@ type
     maxIter*: int
     fitted*: bool
 
+  Pipeline*[Steps] = object
+    steps*: Steps
+    fitted*: bool
+
   DataSplit*[T] = object
     train*: seq[T]
     test*: seq[T]
@@ -96,6 +100,15 @@ func initPCA*(nComponents: int; maxIter = 100): PCA =
   if maxIter <= 0:
     raise newException(StatsError, "PCA maxIter must be positive")
   PCA(nComponents: nComponents, maxIter: maxIter)
+
+func initPipeline*[Steps](steps: Steps): Pipeline[Steps] =
+  Pipeline[Steps](steps: steps)
+
+func pipeline*[Steps](steps: Steps): Pipeline[Steps] =
+  initPipeline(steps)
+
+func pipeline*[A, B](first: A; second: B): Pipeline[(A, B)] =
+  initPipeline((first, second))
 
 proc requireMatrix(x: Matrix; opName: string) =
   if x.len == 0:
@@ -409,6 +422,45 @@ proc transform*(model: PCA; x: Matrix): Matrix =
 proc fitTransform*(model: PCA; x: Matrix): Matrix =
   model.fit(x).transform(x)
 
+proc fit*[A, E](pipe: Pipeline[(A, E)]; x: Matrix; y: seq[float64]): auto =
+  ## Fits a transformer followed by a supervised estimator.
+  let fittedFirst = pipe.steps[0].fit(x)
+  let transformed = fittedFirst.transform(x)
+  let fittedSecond = pipe.steps[1].fit(transformed, y)
+  Pipeline[(typeof(fittedFirst), typeof(fittedSecond))](
+    steps: (fittedFirst, fittedSecond),
+    fitted: true,
+  )
+
+proc fit*[A, B](pipe: Pipeline[(A, B)]; x: Matrix): auto =
+  ## Fits two transformer steps in sequence.
+  let fittedFirst = pipe.steps[0].fit(x)
+  let transformed = fittedFirst.transform(x)
+  let fittedSecond = pipe.steps[1].fit(transformed)
+  Pipeline[(typeof(fittedFirst), typeof(fittedSecond))](
+    steps: (fittedFirst, fittedSecond),
+    fitted: true,
+  )
+
+proc transform*[A, B](pipe: Pipeline[(A, B)]; x: Matrix): Matrix =
+  ## Applies a fitted two-transformer pipeline.
+  if not pipe.fitted:
+    raise newException(StatsError, "Pipeline.transform: pipeline is not fitted")
+  pipe.steps[1].transform(pipe.steps[0].transform(x))
+
+proc predict*[A, E](pipe: Pipeline[(A, E)]; x: Matrix): auto =
+  ## Applies a fitted transformer plus estimator pipeline.
+  if not pipe.fitted:
+    raise newException(StatsError, "Pipeline.predict: pipeline is not fitted")
+  pipe.steps[1].predict(pipe.steps[0].transform(x))
+
+proc predictProba*[A, E](pipe: Pipeline[(A, E)]; x: Matrix): auto =
+  ## Applies a fitted transformer plus probabilistic estimator pipeline.
+  if not pipe.fitted:
+    raise newException(StatsError,
+      "Pipeline.predictProba: pipeline is not fitted")
+  pipe.steps[1].predictProba(pipe.steps[0].transform(x))
+
 func asFloat(value: DataValue; column: string): float64 =
   case value.kind
   of dfvInt:
@@ -558,6 +610,43 @@ func accuracy*(yTrue: seq[int]; yPred: seq[int]): float64 =
     if yTrue[i] == yPred[i]:
       inc hits
   float64(hits) / float64(yTrue.len)
+
+func r2Score*(yTrue, yPred: seq[float64]): float64 =
+  if yTrue.len != yPred.len or yTrue.len == 0:
+    raise newException(StatsError, "r2Score: invalid lengths")
+  let avg = yTrue.mean()
+  var ssRes = 0.0
+  var ssTot = 0.0
+  for i in 0 ..< yTrue.len:
+    ssRes += (yTrue[i] - yPred[i]) * (yTrue[i] - yPred[i])
+    ssTot += (yTrue[i] - avg) * (yTrue[i] - avg)
+  if ssTot == 0:
+    return if ssRes == 0: 1.0 else: 0.0
+  1.0 - ssRes / ssTot
+
+proc score*(model: LinearRegression | Ridge | Lasso; x: Matrix;
+    y: seq[float64]): float64 =
+  r2Score(y, model.predict(x))
+
+proc score*(model: LogisticRegression; x: Matrix; y: seq[int]): float64 =
+  accuracy(y, model.predict(x))
+
+proc score*(model: LogisticRegression; x: Matrix; y: seq[float64]): float64 =
+  var labels = newSeq[int](y.len)
+  for i, value in y:
+    labels[i] = if value >= 0.5: 1 else: 0
+  model.score(x, labels)
+
+proc score*[A, E](pipe: Pipeline[(A, E)]; x: Matrix;
+    y: seq[float64]): float64 =
+  if not pipe.fitted:
+    raise newException(StatsError, "Pipeline.score: pipeline is not fitted")
+  pipe.steps[1].score(pipe.steps[0].transform(x), y)
+
+proc score*[A, E](pipe: Pipeline[(A, E)]; x: Matrix; y: seq[int]): float64 =
+  if not pipe.fitted:
+    raise newException(StatsError, "Pipeline.score: pipeline is not fitted")
+  pipe.steps[1].score(pipe.steps[0].transform(x), y)
 
 func rocAuc*(yTrue: seq[int]; scores: seq[float64]): float64 =
   if yTrue.len != scores.len or yTrue.len == 0:

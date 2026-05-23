@@ -26,6 +26,37 @@ block priors_and_log_prob_are_explicit:
   doAssert model.priors[0].name == "mu"
   doAssert model.logProb([1.0]) > model.logProb([5.0])
 
+block local_probctx_programs_have_named_sites:
+  type RegData = object
+    y: seq[float64]
+
+  proc regression(ctx: var ProbCtx; data: RegData) =
+    let mu = ctx.sample("mu", normal(0.0, 2.0))
+    ctx.observe("y", normal(mu, 0.2), data.y, dims = ["obs"])
+    ctx.deterministic("muSquared", mu * mu)
+
+  let program: ProbProgram[RegData] = regression
+  let data = RegData(y: @[0.9, 1.0, 1.1])
+  doAssert logProb(program, data, [1.0]) > logProb(program, data, [5.0])
+
+  let trace = sample(initNuts(draws = 8, warmup = 4, stepSize = 0.03,
+    maxTreeDepth = 2, seed = 3), program, data, initial = [0.0])
+  doAssert trace.samples.len == 8
+  doAssert trace.names == @["mu"]
+
+  let prior = priorPredictive(program, data, draws = 2, seed = 4)
+  doAssert prior.len == 2
+  doAssert prior[0].sites.len >= 4
+
+  let post = posteriorPredictive(trace, program, data, seed = 5)
+  doAssert post.len == trace.samples.len
+  doAssert post[0].sites[0].name == "mu"
+
+  let svi = fitSvi(initSvi(steps = 3, lr = 0.001), program, data,
+    initial = [0.0])
+  doAssert svi.names == @["mu"]
+  doAssert svi.loss.len == 3
+
 block observed_data_can_come_from_dataframe:
   let values = observedColumn(sql("""
       select * from (values

@@ -27,6 +27,7 @@
 ## `seq`/`array` of pytrees. Non-tensor scalar fields (ints, floats,
 ## strings, enums, ...) are preserved verbatim.
 
+import std/strutils
 import ./tensor
 import ./dtype
 import ./device
@@ -44,6 +45,14 @@ type
     ## Non-trainable pytree leaf wrapper.
     value*: T
 
+  TreePath* = distinct string
+    ## Stable field path for a tensor-bearing pytree leaf.
+
+  PathSet* = object
+    ## Small ordered set of pytree paths used by donation, freezing,
+    ## partitioning, sharding, and checkpoint policies.
+    paths*: seq[TreePath]
+
   TreeLeafKind* = enum
     tlTensor
     tlParam
@@ -51,7 +60,7 @@ type
 
   TreeLeaf* = object
     ## Named tensor-bearing leaf discovered during a pytree walk.
-    path*: string
+    path*: TreePath
     tensor*: Tensor
     kind*: TreeLeafKind
 
@@ -67,6 +76,69 @@ func param*[T](value: T): Param[T] =
 func buffer*[T](value: T): Buffer[T] =
   ## Wraps `value` as non-trainable state.
   Buffer[T](value: value)
+
+func treePath*(value: string): TreePath =
+  ## Converts a string into a typed pytree path.
+  TreePath(value)
+
+converter treePathToString*(path: TreePath): string =
+  string(path)
+
+func `$`*(path: TreePath): string =
+  string(path)
+
+func `==`*(left, right: TreePath): bool =
+  string(left) == string(right)
+
+func initPathSet*(paths: openArray[TreePath]): PathSet =
+  ## Creates an ordered path set, keeping the first occurrence of each path.
+  for path in paths:
+    if path notin result.paths:
+      result.paths.add path
+
+func initPathSet*(paths: openArray[string]): PathSet =
+  ## Creates an ordered path set from string paths.
+  for path in paths:
+    let typed = treePath(path)
+    if typed notin result.paths:
+      result.paths.add typed
+
+func pathSet*(paths: openArray[TreePath]): PathSet =
+  ## Convenience alias for `initPathSet`.
+  initPathSet(paths)
+
+func pathSet*(paths: openArray[string]): PathSet =
+  ## Convenience alias for `initPathSet`.
+  initPathSet(paths)
+
+func len*(paths: PathSet): int =
+  paths.paths.len
+
+iterator items*(paths: PathSet): TreePath =
+  for path in paths.paths:
+    yield path
+
+func contains*(paths: PathSet; path: TreePath): bool =
+  for item in paths.paths:
+    if item == path:
+      return true
+
+func contains*(paths: PathSet; path: string): bool =
+  paths.contains(treePath(path))
+
+proc incl*(paths: var PathSet; path: TreePath) =
+  ## Adds `path` if it is not already present.
+  if path notin paths.paths:
+    paths.paths.add path
+
+proc incl*(paths: var PathSet; path: string) =
+  paths.incl(treePath(path))
+
+func matchesPrefix*(prefix, path: TreePath): bool =
+  ## True when `prefix` names `path` or an ancestor of `path`.
+  let p = string(prefix)
+  let value = string(path)
+  value == p or value.startsWith(p & ".") or value.startsWith(p & "[")
 
 converter paramToTensor*(p: Param[Tensor]): Tensor =
   p.value
@@ -128,38 +200,44 @@ proc treeFlatten*[T](v: T): seq[Tensor] =
 
 # ---- treeLeaves / treePaths -----------------------------------------------
 
-proc childPath(base, name: string): string =
-  if base.len == 0: name else: base & "." & name
+proc childPath(base: TreePath; name: string): TreePath =
+  if string(base).len == 0:
+    treePath(name)
+  else:
+    treePath(string(base) & "." & name)
 
-proc indexPath(base: string; i: int): string =
-  if base.len == 0: "[" & $i & "]" else: base & "[" & $i & "]"
+proc indexPath(base: TreePath; i: int): TreePath =
+  if string(base).len == 0:
+    treePath("[" & $i & "]")
+  else:
+    treePath(string(base) & "[" & $i & "]")
 
-proc collectLeaves(dst: var seq[TreeLeaf]; path: string; v: Tensor;
+proc collectLeaves(dst: var seq[TreeLeaf]; path: TreePath; v: Tensor;
     kind: TreeLeafKind = tlTensor) =
   dst.add TreeLeaf(path: path, tensor: v, kind: kind)
 
-proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: T;
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: TreePath; v: T;
     kind: TreeLeafKind = tlTensor)
 
-proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: Param[T];
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: TreePath; v: Param[T];
     kind: TreeLeafKind = tlTensor) =
   collectLeaves(dst, path, v.value, tlParam)
 
-proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: Buffer[T];
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: TreePath; v: Buffer[T];
     kind: TreeLeafKind = tlTensor) =
   collectLeaves(dst, path, v.value, tlBuffer)
 
-proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: seq[T];
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: TreePath; v: seq[T];
     kind: TreeLeafKind = tlTensor) =
   for i, item in v:
     collectLeaves(dst, indexPath(path, i), item, kind)
 
-proc collectLeaves[N, T](dst: var seq[TreeLeaf]; path: string; v: array[N, T];
+proc collectLeaves[N, T](dst: var seq[TreeLeaf]; path: TreePath; v: array[N, T];
     kind: TreeLeafKind = tlTensor) =
   for i, item in v:
     collectLeaves(dst, indexPath(path, i), item, kind)
 
-proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: T;
+proc collectLeaves[T](dst: var seq[TreeLeaf]; path: TreePath; v: T;
     kind: TreeLeafKind = tlTensor) =
   when T is Tensor:
     dst.add TreeLeaf(path: path, tensor: v, kind: kind)
@@ -172,27 +250,27 @@ proc collectLeaves[T](dst: var seq[TreeLeaf]; path: string; v: T;
 proc treeLeaves*[T](v: T): seq[TreeLeaf] =
   ## Returns tensor-bearing leaves with stable field paths.
   result = @[]
-  collectLeaves(result, "", v)
+  collectLeaves(result, treePath(""), v)
 
-proc treePaths*[T](v: T): seq[string] =
+proc treePaths*[T](v: T): PathSet =
   ## Returns paths for every tensor-bearing leaf.
   for leaf in treeLeaves(v):
-    result.add leaf.path
+    result.incl leaf.path
 
-proc paramsOf*[T](v: T): seq[string] =
+proc paramsOf*[T](v: T): PathSet =
   ## Returns paths for trainable leaves.
   for leaf in treeLeaves(v):
     if leaf.kind == tlParam:
-      result.add leaf.path
+      result.incl leaf.path
 
-proc buffersOf*[T](v: T): seq[string] =
+proc buffersOf*[T](v: T): PathSet =
   ## Returns paths for non-trainable buffer leaves.
   for leaf in treeLeaves(v):
     if leaf.kind == tlBuffer:
-      result.add leaf.path
+      result.incl leaf.path
 
 proc treePartition*[T](v: T;
-    pred: proc(path: string; kind: TreeLeafKind): bool {.closure.}):
+    pred: proc(path: TreePath; kind: TreeLeafKind): bool {.closure.}):
     TreePartition =
   ## Splits leaves into `selected` and `rest` using a path/kind predicate.
   for leaf in treeLeaves(v):
@@ -264,6 +342,16 @@ proc treeMap*[T](v: T; fn: proc(x: Tensor): Tensor): T =
   let leaves = treeFlatten(v)
   var mapped = newSeq[Tensor](leaves.len)
   for i, t in leaves: mapped[i] = fn(t)
+  result = treeUnflatten(v, mapped)
+
+proc treeMapWithPath*[T](v: T;
+    fn: proc(path: TreePath; kind: TreeLeafKind; x: Tensor): Tensor): T =
+  ## Returns a copy of `v` with `fn` applied to every tensor leaf, passing
+  ## stable path and leaf-kind metadata.
+  let leaves = treeLeaves(v)
+  var mapped = newSeq[Tensor](leaves.len)
+  for i, leaf in leaves:
+    mapped[i] = fn(leaf.path, leaf.kind, leaf.tensor)
   result = treeUnflatten(v, mapped)
 
 proc treeLeafCount*[T](v: T): int =

@@ -116,15 +116,30 @@ proc collect*(df: DataFrame; device: Device;
     result.columns[i] = tensorFromColumn(column, 0, host.rowCount, device,
       options)
 
+func optionsForField(spec: BatchFieldSpec; options: CollectOptions):
+    CollectOptions =
+  result = options
+  if spec.hasDType:
+    case spec.dtype
+    of dtFloat32:
+      result.coerce = coerceNumericToFloat32
+    else:
+      result.coerce = coerceNone
+
 proc tensorForField(host: DataFrameCollection; spec: BatchFieldSpec;
     start, stop: int; device: Device; options: CollectOptions): Tensor =
   if spec.columns.len == 0:
     raise newException(DataFrameError,
       "batch field has no mapped columns: " & spec.fieldName)
+  let fieldOptions = optionsForField(spec, options)
   if spec.columns.len == 1:
     return tensorFromColumn(host.columns[host.requireColumn(spec.columns[0])],
-      start, stop, device, options)
+      start, stop, device, fieldOptions)
 
+  if spec.hasDType and spec.dtype != dtFloat32:
+    raise newException(DataFrameError,
+      "multi-column batch fields currently materialize as float32: " &
+        spec.fieldName)
   var parts: seq[float32]
   let rows = stop - start
   for row in start ..< stop:
@@ -137,7 +152,7 @@ proc tensorForField(host: DataFrameCollection; spec: BatchFieldSpec;
       of dfvFloat:
         parts.add float32(value.floatVal)
       of dfvNull:
-        if options.allowNulls: parts.add 0'f32
+        if fieldOptions.allowNulls: parts.add 0'f32
         else: raise newException(DataFrameError,
           "null value in mapped field: " & spec.fieldName)
       else:
@@ -190,4 +205,3 @@ proc toDataset*[Batch](df: DataFrame; batchSize: int; device: Device;
             field = tensorForField(host, table[name], start, stop, d, opts)
         yield batch
         start = stop
-

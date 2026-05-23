@@ -71,6 +71,15 @@ block pca_projects_to_requested_components:
   doAssert projected.len == 1
   doAssert projected[0].len == 1
 
+block pipeline_composes_transformer_and_estimator:
+  let x = @[@[1.0], @[2.0], @[3.0], @[4.0]]
+  let y = @[2.0, 4.0, 6.0, 8.0]
+  let pipe = pipeline(initStandardScaler(), initLinearRegression()).fit(x, y)
+  let preds = pipe.predict(x)
+
+  doAssert preds.len == y.len
+  doAssert pipe.score(x, y) > 0.99
+
 block metrics_splits_and_cross_validation:
   doAssert meanSquaredError(@[1.0, 2.0], @[1.0, 4.0]).close(2.0)
   doAssert rocAuc(@[0, 1, 0, 1], @[0.1, 0.9, 0.2, 0.8]).close(1.0)

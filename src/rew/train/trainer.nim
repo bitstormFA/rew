@@ -84,7 +84,7 @@ proc logStepResult[S](ctx: var TrainContext; result: StepResult[S]) =
       ctx.log(metric.name, metric.value,
         onStep = true, onEpoch = true, progBar = metric.progBar)
 
-proc runValidation[M, B](trainer: var Trainer; state: TrainState[M];
+proc runValidation[M, B, O, S](trainer: var Trainer; state: TrainState[M, O, S];
     data: DataSplits[B]; loss: LossFn[M, B]; runtime: Runtime;
     ctx: var TrainContext) =
   if data.val.isNone:
@@ -112,7 +112,7 @@ proc runValidation[M, B](trainer: var Trainer; state: TrainState[M];
 proc shouldStopAtMaxSteps(trainer: Trainer; ctx: TrainContext): bool =
   trainer.maxSteps.isSome and ctx.globalStep >= trainer.maxSteps.get()
 
-proc finishEpoch[M, B](trainer: var Trainer; state: TrainState[M];
+proc finishEpoch[M, B, O, S](trainer: var Trainer; state: TrainState[M, O, S];
     data: DataSplits[B]; loss: LossFn[M, B]; runtime: Runtime;
     ctx: var TrainContext; saveCheckpoint: CheckpointWriter) =
   if trainer.valInterval.isNone:
@@ -120,7 +120,7 @@ proc finishEpoch[M, B](trainer: var Trainer; state: TrainState[M];
   ctx.reduceEpochMetrics()
   fireEpochEndCallbacks(trainer.callbacks, ctx, saveCheckpoint)
 
-proc fit*[M, B](trainer: var Trainer; state: var TrainState[M];
+proc fit*[M, B, O, S](trainer: var Trainer; state: var TrainState[M, O, S];
     data: DataSplits[B]; loss: LossFn[M, B]) =
   ## Fits a `TrainState` from a typed loss function.
   ##
@@ -131,7 +131,7 @@ proc fit*[M, B](trainer: var Trainer; state: var TrainState[M];
     trainer.precision, trainer.strategy)
   var ctx = initTrainContext(tmFit)
   var step = compileTrainStep(loss, state, runtime,
-    donate = if trainer.donateParams: paramsOf(state.model) else: @[])
+    donate = if trainer.donateParams: paramsOf(state.model) else: PathSet())
   let saveCheckpoint = checkpointWriter(runtime, addr(state))
 
   fireCtxCallbacks(trainer.callbacks, onFitStart, ctx)
@@ -171,8 +171,8 @@ proc fit*[M, B](trainer: var Trainer; state: var TrainState[M];
   fireCtxCallbacks(trainer.callbacks, onTrainEnd, ctx)
   fireCtxCallbacks(trainer.callbacks, onFitEnd, ctx)
 
-proc fit*[M, B](trainer: var Trainer; state: var TrainState[M];
-    data: DataSplits[B]; trainStep: TrainStepFn[M, B]) =
+proc fit*[M, B, O, S](trainer: var Trainer; state: var TrainState[M, O, S];
+    data: DataSplits[B]; trainStep: TrainStepFn[M, B, O, S]) =
   ## Fits a `TrainState` from a user-owned typed custom step.
   let runtime = initRuntime(trainer.accelerator, trainer.devices,
     trainer.precision, trainer.strategy)
@@ -214,7 +214,7 @@ proc fit*[M, B](trainer: var Trainer; state: var TrainState[M];
   fireCtxCallbacks(trainer.callbacks, onTrainEnd, ctx)
   fireCtxCallbacks(trainer.callbacks, onFitEnd, ctx)
 
-proc validate*[M, B](trainer: var Trainer; state: TrainState[M];
+proc validate*[M, B, O, S](trainer: var Trainer; state: TrainState[M, O, S];
     data: DataSplits[B]; loss: LossFn[M, B]): seq[MetricEntry] =
   ## Runs one typed validation pass and returns epoch metrics.
   let runtime = initRuntime(trainer.accelerator, trainer.devices,

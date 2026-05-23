@@ -22,11 +22,11 @@ type
     runtime*: Runtime
     mode*: TrainMode
 
-  TrainState*[M] = object
+  TrainState*[M, O = GradientTransform, S = OptimState] = object
     ## Model, optimizer, optimizer state, PRNG key, and global step.
     model*: M
-    opt*: GradientTransform
-    optState*: OptimState
+    opt*: O
+    optState*: S
     step*: int
     key*: Key
 
@@ -44,45 +44,42 @@ type
 
   LossFn*[M, B] = proc(model: M; batch: B; ctx: CallCtx): Tensor {.closure.}
 
-  TrainStepFn*[M, B] = proc(state: TrainState[M]; batch: B;
-    ctx: CallCtx): StepResult[TrainState[M]] {.closure.}
+  TrainStepFn*[M, B, O = GradientTransform, S = OptimState] = proc(
+    state: TrainState[M, O, S]; batch: B;
+    ctx: CallCtx): StepResult[TrainState[M, O, S]] {.closure.}
 
-  CompiledTrainStep*[M, B] = object
+  CompiledTrainStep*[M, B, O = GradientTransform, S = OptimState] = object
     ## Cached typed training step.
     loss*: LossFn[M, B]
     runtime*: Runtime
-    donate*: seq[string]
+    donate*: PathSet
     compiled: JitFunction
     modelProto*: M
     batchProto*: B
-    optStateProto*: OptimState
-    opt*: GradientTransform
+    optStateProto*: S
+    opt*: O
     prepared: bool
 
 func initCallCtx*(runtime: Runtime; mode: TrainMode = tmFit): CallCtx =
   ## Creates an execution context for typed steps.
   CallCtx(runtime: runtime, mode: mode)
 
-proc initTrainState*[M](model: M; opt: GradientTransform;
-    key: Key = initKey(0)): TrainState[M] =
+proc initTrainState*[M, O](model: M; opt: O;
+    key: Key = initKey(0)): auto =
   ## Initializes optimizer state for `model`.
-  TrainState[M](
+  let optState = initState(opt, model)
+  TrainState[M, O, typeof(optState)](
     model: model,
     opt: opt,
-    optState: initState(opt, model),
+    optState: optState,
     step: 0,
     key: key,
   )
 
-func containsPath(paths: openArray[string]; path: string): bool =
-  for item in paths:
-    if item == path:
-      return true
-
-proc donateIndices[M](model: M; donate: openArray[string]): seq[int] =
+proc donateIndices[M](model: M; donate: PathSet): seq[int] =
   let leaves = treeLeaves(model)
   for i, leaf in leaves:
-    if containsPath(donate, leaf.path):
+    if donate.contains(leaf.path):
       result.add i
 
 proc tensorSlice(args: openArray[Tensor]; start, count: int): seq[Tensor] =
@@ -95,7 +92,7 @@ proc concatTensors(parts: openArray[seq[Tensor]]): seq[Tensor] =
     for t in part:
       result.add t
 
-proc buildJit[M, B](step: var CompiledTrainStep[M, B]) =
+proc buildJit[M, B, O, S](step: var CompiledTrainStep[M, B, O, S]) =
   let modelProto = step.modelProto
   let batchProto = step.batchProto
   let optStateProto = step.optStateProto
@@ -129,12 +126,8 @@ proc buildJit[M, B](step: var CompiledTrainStep[M, B]) =
 
     let lossValue = loss(model, batch, ctx)
     let grads = treeUnflatten(model, grad(lossForGrad, modelLeaves))
-    var effectiveOpt = tracedOpt
-    let buffers = buffersOf(model)
-    if buffers.len > 0:
-      effectiveOpt = chain(freeze(buffers), opt)
     let (newModel, newOptState) =
-      effectiveOpt.update(grads, optState, model)
+      tracedOpt.update(grads, optState, model)
 
     result = @[lossValue]
     result.add treeFlatten(newModel)
@@ -144,21 +137,29 @@ proc buildJit[M, B](step: var CompiledTrainStep[M, B]) =
     donateArgs = donateIndices(modelProto, step.donate))
   step.prepared = true
 
-proc compileTrainStep*[M, B](loss: LossFn[M, B]; state: TrainState[M];
-    runtime: Runtime = initRuntime(); donate: openArray[string] = []):
-    CompiledTrainStep[M, B] =
+proc compileTrainStep*[M, B, O, S](loss: LossFn[M, B];
+    state: TrainState[M, O, S]; runtime: Runtime = initRuntime();
+    donate: PathSet = PathSet()):
+    CompiledTrainStep[M, B, O, S] =
   ## Creates a cached typed training step from a loss function.
-  CompiledTrainStep[M, B](
+  CompiledTrainStep[M, B, O, S](
     loss: loss,
     runtime: runtime,
-    donate: @donate,
+    donate: donate,
     modelProto: state.model,
     optStateProto: state.optState,
     opt: state.opt,
   )
 
-proc call*[M, B](step: var CompiledTrainStep[M, B]; state: TrainState[M];
-    batch: B): StepResult[TrainState[M]] =
+proc compileTrainStep*[M, B, O, S](loss: LossFn[M, B];
+    state: TrainState[M, O, S]; runtime: Runtime;
+    donate: openArray[string]): CompiledTrainStep[M, B, O, S] =
+  ## Creates a cached typed training step with string path donation.
+  compileTrainStep(loss, state, runtime, pathSet(donate))
+
+proc call*[M, B, O, S](step: var CompiledTrainStep[M, B, O, S];
+    state: TrainState[M, O, S]; batch: B):
+    StepResult[TrainState[M, O, S]] =
   ## Runs one compiled typed training step.
   if not step.prepared:
     step.modelProto = state.model
@@ -179,20 +180,21 @@ proc call*[M, B](step: var CompiledTrainStep[M, B]; state: TrainState[M];
   let newModel = treeUnflatten(state.model, tensorSlice(outs, 1, modelCount))
   let newOptState = treeUnflatten(state.optState,
     tensorSlice(outs, 1 + modelCount, optStateCount))
-  let newState = TrainState[M](
+  let newState = TrainState[M, O, S](
     model: newModel,
     opt: state.opt,
     optState: newOptState,
     step: state.step + 1,
     key: foldIn(state.key, uint64(state.step + 1)),
   )
-  StepResult[TrainState[M]](
+  StepResult[TrainState[M, O, S]](
     state: newState,
     loss: outs[0],
     metrics: @[StepMetric(name: "loss", value: outs[0], progBar: true)],
   )
 
-proc `()`*[M, B](step: var CompiledTrainStep[M, B]; state: TrainState[M];
-    batch: B): StepResult[TrainState[M]] =
+proc `()`*[M, B, O, S](step: var CompiledTrainStep[M, B, O, S];
+    state: TrainState[M, O, S]; batch: B):
+    StepResult[TrainState[M, O, S]] =
   ## Callable sugar for `step.call(state, batch)`.
   step.call(state, batch)

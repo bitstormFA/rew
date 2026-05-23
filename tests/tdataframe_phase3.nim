@@ -112,10 +112,10 @@ if setupCpu(d):
       features: Tensor
       target: Tensor
 
-    let mapping = BatchMapping(fields: @[
-      BatchFieldSpec(fieldName: "features", columns: @["a", "b"]),
-      BatchFieldSpec(fieldName: "target", columns: @["target"]),
-    ])
+    let mapping = batchMapping[MatrixBatch](
+      tensorField("features", ["a", "b"], dtFloat32),
+      tensorField("target", "target", dtFloat32),
+    )
     let df = sql("""
         select * from (values
           (1.0::double, 2.0::double, 0.0::double),

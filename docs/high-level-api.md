@@ -51,12 +51,14 @@ The public language is built from a small set of value types.
   and non-trainable state in `Buffer[Tensor]`.
 - Normal non-tensor fields are static config. They are part of the value object
   but not optimizer leaves.
+- `TreePath` and `PathSet` are first-class controls for named leaves. Donation,
+  freezing, optimizer partitioning, sharding, and checkpoint naming all use
+  these typed paths instead of parallel string lists.
 - `Runtime` owns execution policy: device, mesh or sharding policy, precision,
   compile policy, and checkpoint policy.
-- `TrainState[M]` owns model value, gradient transform, optimizer state, global
-  step, and key. It is the canonical state passed through training. Optimizer
-  transform and state are not separate public type parameters; they use the
-  `GradientTransform` composition language.
+- `TrainState[M, O, S]` owns model value, optimizer value, optimizer state,
+  global step, and key. Users normally write `var state = initTrainState(...)`
+  and let `O` and `S` infer from the open optimizer protocol.
 - `StepResult[S]` is the canonical compiled-step result. It returns the next
   state plus tensor metrics that can be observed or logged outside compiled
   regions.
@@ -84,8 +86,11 @@ Required concepts:
 - `treeLeaves` returns tensor-like leaves in deterministic order.
 - `treePaths` returns named paths for those leaves.
 - `treeMap` transforms leaves while preserving structure.
+- `treeMapWithPath` transforms leaves with access to `TreePath` and leaf kind.
 - `treePartition` splits a value tree into matching subtrees by path or leaf
   predicate.
+- `paramsOf` and `buffersOf` return `PathSet` values for trainable and
+  non-trainable model leaves.
 
 Path-based controls should be preferred over ad hoc parallel arrays. Donation,
 freezing, checkpoint naming, optimizer partitioning, and sharding metadata should
@@ -100,10 +105,10 @@ Default loss mode:
 
 ```nim
 proc loss(model: Mnist; batch: Batch; ctx: CallCtx): Tensor =
-  softmaxCrossEntropy(forward(model, batch.x), batch.y)
+  softmaxCrossEntropy(forward(model, batch.x, ctx), batch.y)
 
 var state = initTrainState(initMnist(key), adamw(lr = 1e-3))
-let step = compileTrainStep(loss, state, donate = paramsOf(state.model))
+var step = compileTrainStep(loss, state, donate = paramsOf(state.model))
 state = step(state, batch).state
 ```
 
@@ -111,10 +116,10 @@ Advanced custom-step mode:
 
 ```nim
 proc trainStep(
-    state: TrainState[Mnist];
+    state: TrainState[Mnist, O, S];
     batch: Batch;
     ctx: CallCtx
-): StepResult[TrainState[Mnist]] =
+): StepResult[TrainState[Mnist, O, S]] =
   discard ctx
   compiled.call(state, batch)
 ```
@@ -170,6 +175,17 @@ dtypes before tensors enter a compiled training step. Once data is collected as
 a batch or dataset, it follows the same pytree, `Runtime`, `TrainState`, and
 `compileTrainStep` rules as every other high-level training workflow.
 
+Typed batch materialisation uses `BatchMapping`:
+
+```nim
+let mapping = batchMapping[Batch](
+  tensorField("x", ["age", "income"], dtFloat32),
+  tensorField("y", "label", dtInt64),
+)
+let ds = df.toDataset[Batch](batchSize = 128, device = runtime.device,
+  mapping = mapping)
+```
+
 DuckDB integration is pinned by artifact version, not by the host install.
 `bau fetchDuckDB` downloads the known C library for the current platform
 (Linux amd64/arm64, macOS universal including Apple Silicon, Windows
@@ -184,19 +200,36 @@ Classical estimators live at the high-level surface as plain value objects:
 `StandardScaler`, and `PCA`. They operate on numeric matrices, DataFrames, and
 Datasets with explicit extraction. Metrics such as `accuracy`, `rocAuc`,
 `meanSquaredError`, and `crossValScore` are host-side helpers over explicit
-values rather than hidden training-loop state.
+values rather than hidden training-loop state. `Pipeline[Steps]` composes
+transformer and estimator values through the same `fit`, `transform`, `predict`,
+`predictProba`, and `score` vocabulary.
 
-Probabilistic modeling is explicit: users build a `ProbModel` from named
-priors and a log-likelihood function, then run `NutsSampler` with an
-`McmcConfig`. Observed data can come from a DataFrame through explicit numeric
-collection. `TensorProbModel` provides the tensor-backed path: host NUTS
-control evaluates log-probability and gradients through rew tensor operations
-and autograd. Posterior summaries and predictive draws remain explicit values;
-there is no global model context and no implicit device transfer.
+Probabilistic modeling is explicit and local. Users write probabilistic
+programs over `ProbCtx`; named calls to `sample`, `observe`, `deterministic`,
+and `factor` define the joint log probability, predictive sites, and generated
+quantities without any global model context:
+
+```nim
+proc regression(ctx: var ProbCtx; data: RegData) =
+  let sigma = ctx.sample("sigma", halfNormal(1.0))
+  let beta = ctx.sample("beta", normal(0.0, 1.0))
+  let mu = data.x * beta
+  ctx.observe("y", normal(mu, sigma), data.y, dims = ["obs"])
+
+let fit = sample(initNuts(draws = 1000, warmup = 1000, chains = 4),
+  regression, data, runtime = initRuntime(tCpu))
+let preds = posteriorPredictive(fit, regression, newData)
+```
+
+Observed data can come from a DataFrame through explicit numeric collection.
+`ProbModel` and `TensorProbModel` remain lower-level escape hatches for direct
+log-probability functions and tensor-backed gradients. Posterior summaries and
+predictive draws remain explicit values; there is no global model context and
+no implicit device transfer.
 
 ## Optimizers
 
-Optimizers are composable gradient transforms, not a closed enum.
+Optimizers are an open optimizer protocol, not a closed enum.
 
 Every optimizer or transform exposes:
 
@@ -205,10 +238,10 @@ proc initState(opt, params): OptState
 proc update(opt, grads, state, params): (updates, nextState)
 ```
 
-Built-in transforms should compose through `chain`, `clipByGlobalNorm`,
-`scaleBySchedule`, `adamw`, `sgd`, `partition`, and `freeze`. This is the shape
-that makes Lion, RMSprop, Adafactor, schedules, clipping, and path-specific
-policies automatically usable by both manual loops and `Trainer`.
+Built-in values compose through `chain`, `clipByGlobalNorm`, `scaleBySchedule`,
+`adamw`, `sgd`, `partition`, and `freeze`. This is the shape that makes Lion,
+RMSprop, Adafactor, schedules, clipping, and path-specific policies
+automatically usable by both manual loops and `Trainer`.
 
 Frozen leaves should be represented by tree filters or optimizer transforms, not
 by mutating model objects or hiding gradients.
@@ -280,7 +313,7 @@ Before merging a high-level API change, check:
   than bare `Tensor` fields?
 - Is training expressible as either a loss function or typed custom
   `trainStep`?
-- Are optimizer features implemented as `GradientTransform` composition?
+- Are optimizer features implemented through the open optimizer protocol?
 - Do data, metrics, and checkpoints preserve user pytrees and named paths?
 - Is raw `JitFn` hidden from new high-level examples?
 - Does `Trainer` reuse compiled steps by signature?

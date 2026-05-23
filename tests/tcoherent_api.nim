@@ -29,17 +29,22 @@ block pytree_paths_and_partitions:
   let bias = fakeTensor([2])
   let state = TinyState(weight: param(w), runningMean: buffer(mean), bias: bias)
 
-  doAssert treePaths(state) == @["weight", "runningMean", "bias"]
-  doAssert paramsOf(state) == @["weight"]
-  doAssert buffersOf(state) == @["runningMean"]
+  doAssert treePaths(state).paths == @[
+    treePath("weight"),
+    treePath("runningMean"),
+    treePath("bias"),
+  ]
+  doAssert paramsOf(state).paths == @[treePath("weight")]
+  doAssert buffersOf(state).paths == @[treePath("runningMean")]
 
   let partitioned = treePartition(state,
-    proc(path: string; kind: TreeLeafKind): bool =
+    proc(path: TreePath; kind: TreeLeafKind): bool =
+      discard path
       kind == tlParam)
   doAssert partitioned.selected.len == 1
   doAssert partitioned.rest.len == 2
-  doAssert partitioned.rest[0].path == "runningMean"
-  doAssert partitioned.rest[1].path == "bias"
+  doAssert partitioned.rest[0].path == treePath("runningMean")
+  doAssert partitioned.rest[1].path == treePath("bias")
 
 block train_state_initializes_transform_state:
   let w = fakeTensor([2, 2])
@@ -47,8 +52,9 @@ block train_state_initializes_transform_state:
   let state = initTrainState(TinyState(weight: param(w),
     runningMean: buffer(w), bias: w), chain(clipByGlobalNorm(1'f32), sgd(lr)))
   doAssert state.step == 0
-  doAssert state.opt.kind == gtkChain
-  doAssert state.optState.kind == gtkChain
+  doAssert state.opt.transforms.len == 2
+  doAssert state.opt.transforms[0].kind == gtkClipByGlobalNorm
+  doAssert state.optState.states.len == 2
 
 block coherent_example_hides_raw_jitfn:
   let src = readFile(getCurrentDir() / "examples" / "mnist_coherent_api.nim")
