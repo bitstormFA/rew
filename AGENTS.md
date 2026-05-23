@@ -33,6 +33,18 @@ matching the layer you are about to edit before making changes.
 - Environment variables use the `REW_` prefix (`REW_TARGET`, `REW_CACHE_DIR`,
   `REW_BUILD`, etc.).
 
+## Project vision
+
+- Extend rew beyond tensor and training workflows into structured analytics,
+  classical statistics, and probabilistic modeling.
+- Add a DuckDB-backed `DataFrame` layer with a composable expression DSL,
+  lazy relational transforms, and a clear host/device execution contract.
+- Preserve rew's value-state design by enabling `DataFrame -> Dataset[Batch] ->
+  Tensor -> model -> loss` with automatic column-to-batch mapping.
+- Keep SQL as an escape hatch, not the main user interface.
+- Support large, out-of-memory datasets with DuckDB-backed pushdown and CPU
+  fallback when device compilation is impossible.
+
 ## Build / test
 
 ```
