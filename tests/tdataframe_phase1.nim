@@ -55,15 +55,14 @@ block raw_sql_source_is_explicit_escape_hatch:
   doAssert query ==
     "SELECT * FROM (SELECT * FROM (select 1 as x)) AS q0 WHERE (\"x\" > 0)"
 
-block collect_records_phase1_query:
+block sql_for_file_source_is_still_inspectable_without_collecting:
   let df = readParquet("events.parquet")
     .filter(startsWith(col("path"), "/api"))
     .limit(5)
-  let collected = df.collect()
+  let query = df.toSql()
 
-  doAssert collected.plan.steps.len == 2
-  doAssert collected.sql == df.toSql()
-  doAssert collected.sql ==
+  doAssert df.steps.len == 2
+  doAssert query ==
     "SELECT * FROM (SELECT * FROM (SELECT * FROM " &
     "read_parquet('events.parquet')) AS q0 WHERE " &
     "starts_with(\"path\", '/api')) AS q1 LIMIT 5"

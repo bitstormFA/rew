@@ -68,3 +68,6 @@ tf_logs/
 .serena/
 .graphify*
 scratch/
+nimble.develop
+nimble.paths
+nimbledeps

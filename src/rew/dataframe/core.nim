@@ -116,12 +116,6 @@ type
     source*: DataFrameSource
     steps*: seq[DataFrameStep]
 
-  DataFrameCollection* = object
-    ## Phase-1 collection boundary. It records the compiled query until a
-    ## concrete backend is attached in a later phase.
-    plan*: DataFrame
-    sql*: string
-
   GroupedDataFrame* = object
     ## Intermediate value returned by `groupBy`.
     parent*: DataFrame
@@ -770,7 +764,3 @@ proc toSql*(df: DataFrame): string =
 proc sql*(df: DataFrame): string =
   ## Emits DuckDB-compatible SQL for the lazy logical plan.
   result = df.toSql()
-
-proc collect*(df: DataFrame): DataFrameCollection =
-  ## Records the SQL that a backend will execute when materialising `df`.
-  result = DataFrameCollection(plan: df, sql: df.toSql())

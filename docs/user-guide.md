@@ -2392,6 +2392,42 @@ When adding new ops, layers, or optimizers:
 - `prefetch` and `parMap` spawn native threads; they require
   `--threads:on`. `parMap` functions must be `gcsafe`.
 
+### 7.11 DataFrames, Stats, And Probabilistic Models
+
+DataFrames use a lazy expression DSL and materialize explicitly through the
+pinned DuckDB C artifact:
+
+```nim
+let df = sql("select 1.0 as x, 2.0 as y")
+let rows = df.collect()
+let ds = toDataset[Batch](df, batchSize = 32, device = cpu())
+```
+
+Run `bau fetchDuckDB` to pre-download the pinned DuckDB release. The fetcher
+selects Linux amd64/arm64, macOS universal (Apple Silicon included), or Windows
+amd64/arm64 artifacts and verifies SHA-256 before extraction.
+
+Classical stats estimators are value objects:
+
+```nim
+let model = initLinearRegression().fit(df, ["x"], "y")
+let preds = model.predict(@[@[3.0]])
+```
+
+Probabilistic models are explicit named priors plus a log-likelihood:
+
+```nim
+let model = initProbModel([normal("mu", 0, 1)],
+  proc(p: openArray[float64]): float64 =
+    normalLogLikelihood(@[0.9, 1.1], p[0], 0.2))
+let trace = initNutsSampler().sample(model, [0.0])
+let stats = trace.summary()
+```
+
+For tensor-backed log-probability and autograd gradients, use
+`TensorProbModel` with a tensor log-probability function and the same
+`NutsSampler`.
+
 ---
 
 ## 8. Further Resources

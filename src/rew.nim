@@ -67,6 +67,12 @@ export data
 import ./rew/dataframe
 export dataframe
 
+import ./rew/stats
+export stats
+
+import ./rew/prob
+export prob
+
 import ./rew/optim/scheduler
 export scheduler
 

@@ -38,6 +38,7 @@ buildPlugin = "task buildPlugin --"
 ci = "task ci"
 fetch = "task fetch --"
 hfFetch = "task hfFetch --"
+fetchDuckDB = "task fetchDuckDB"
 lint = "task lint"
 openxla = "task openxla --"
 testFast = "task testFast --"
@@ -117,6 +118,11 @@ acceptArgs = true
 name = "bench"
 cmd = "python3 benchmarks/run.py"
 description = "Run Rechenwerk/PyTorch MNIST example benchmarks"
+
+[[tasks]]
+name = "fetchDuckDB"
+cmd = "nim c -r --hints:off tools/fetch_duckdb.nim"
+description = "Download the pinned DuckDB C artifact used by DataFrames"
 
 [[tasks]]
 name = "fetch"

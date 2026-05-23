@@ -148,8 +148,9 @@ let features = fromTable("events")
 The primary interface is expression-based: `col`, `lit`, case expressions via
 `caseWhen`, escaped `` `when` ``, `then`, and `otherwise`, plus `alias`, `asc`,
 `desc`, `select`, `filter`, `mutate`, `groupBy`, `summarise`, `arrange`,
-`limit`, and later `join` and `collect`. Raw SQL is an advanced escape hatch
-for debugging or specialist queries; it must not be the main user interface.
+`limit`, `join`, `collect`, `collectAs`, and `toDataset`. Raw SQL is an
+advanced escape hatch for debugging or specialist queries; it must not be the
+main user interface.
 
 `DataFrame` values do not own devices, buffers, or global connections. Backend
 integration must be explicit: file/table sources describe a lazy host-side
@@ -168,6 +169,30 @@ Column-to-batch mapping should be explicit enough to validate field names and
 dtypes before tensors enter a compiled training step. Once data is collected as
 a batch or dataset, it follows the same pytree, `Runtime`, `TrainState`, and
 `compileTrainStep` rules as every other high-level training workflow.
+
+DuckDB integration is pinned by artifact version, not by the host install.
+`bau fetchDuckDB` downloads the known C library for the current platform
+(Linux amd64/arm64, macOS universal including Apple Silicon, Windows
+amd64/arm64). Runtime loading verifies the library reports the pinned version.
+`REW_DUCKDB_LIB` is an explicit override, and `REW_DUCKDB_NO_SYSTEM_FALLBACK`
+disables last-resort system-library fallback.
+
+## Statistics And Probabilistic Modeling
+
+Classical estimators live at the high-level surface as plain value objects:
+`LinearRegression`, `LogisticRegression`, `Ridge`, `Lasso`,
+`StandardScaler`, and `PCA`. They operate on numeric matrices, DataFrames, and
+Datasets with explicit extraction. Metrics such as `accuracy`, `rocAuc`,
+`meanSquaredError`, and `crossValScore` are host-side helpers over explicit
+values rather than hidden training-loop state.
+
+Probabilistic modeling is explicit: users build a `ProbModel` from named
+priors and a log-likelihood function, then run `NutsSampler` with an
+`McmcConfig`. Observed data can come from a DataFrame through explicit numeric
+collection. `TensorProbModel` provides the tensor-backed path: host NUTS
+control evaluates log-probability and gradients through rew tensor operations
+and autograd. Posterior summaries and predictive draws remain explicit values;
+there is no global model context and no implicit device transfer.
 
 ## Optimizers
 

@@ -41,6 +41,9 @@ task fetch, "Download a PJRT plugin for a target into the cache":
       cmd.add " " & a
   exec cmd
 
+task fetchDuckDB, "Download the pinned DuckDB C artifact":
+  exec "bau fetchDuckDB"
+
 task hfFetch, "Download Hugging Face model or dataset assets into the HF cache":
   ## Source checkout usage:
   ##   bau hfFetch model google/gemma-4-E4B-it
