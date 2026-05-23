@@ -64,6 +64,9 @@ export serialize
 import ./rew/data
 export data
 
+import ./rew/dataframe
+export dataframe
+
 import ./rew/optim/scheduler
 export scheduler
 

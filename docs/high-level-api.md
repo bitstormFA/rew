@@ -62,6 +62,9 @@ The public language is built from a small set of value types.
   regions.
 - `Dataset[T]` is the value object for a Dataset Pipeline: a lazy,
   chainable manipulation flow over samples or batches.
+- `DataFrame` is the value object for structured relational data: a lazy,
+  chainable manipulation flow over columns and expressions that can later
+  collect into tensors or typed batches explicitly.
 - `DataSplits[T]` groups train/validation/test datasets.
 - `Trainer` is an orchestration wrapper around the same `Runtime`, `TrainState`,
   and step functions users can run manually.
@@ -124,6 +127,47 @@ examples.
 
 Raw `jit`, HLO dumping, and lowering are still important. They belong in
 `rew/xla` and in lower-level implementation code.
+
+## DataFrames
+
+DataFrames extend the data tier from sample pipelines into structured analytics.
+The public shape is a lazy value object plus a composable expression DSL:
+
+```nim
+let features = fromTable("events")
+  .filter(col("country") == lit("DE"))
+  .mutate(named("net", col("gross") - col("discount")))
+  .groupBy(col("user_id"))
+  .summarise(
+    named("totalNet", sum(col("net"))),
+    named("rows", count()))
+  .arrange(desc(col("totalNet")))
+  .limit(1000)
+```
+
+The primary interface is expression-based: `col`, `lit`, case expressions via
+`caseWhen`, escaped `` `when` ``, `then`, and `otherwise`, plus `alias`, `asc`,
+`desc`, `select`, `filter`, `mutate`, `groupBy`, `summarise`, `arrange`,
+`limit`, and later `join` and `collect`. Raw SQL is an advanced escape hatch
+for debugging or specialist queries; it must not be the main user interface.
+
+`DataFrame` values do not own devices, buffers, or global connections. Backend
+integration must be explicit: file/table sources describe a lazy host-side
+relational plan, and materialisation happens only through explicit calls such as
+`collect`, `collectAs[Batch]`, or `toDataset[Batch]`. There are no implicit
+host transfers, no implicit device moves, and no hidden global mutable state in
+the public API.
+
+The canonical training bridge is:
+
+```nim
+DataFrame -> Dataset[Batch] -> Tensor -> model -> loss
+```
+
+Column-to-batch mapping should be explicit enough to validate field names and
+dtypes before tensors enter a compiled training step. Once data is collected as
+a batch or dataset, it follows the same pytree, `Runtime`, `TrainState`, and
+`compileTrainStep` rules as every other high-level training workflow.
 
 ## Optimizers
 
