@@ -67,8 +67,8 @@ export data
 import ./rew/dataframe
 export dataframe
 
-import ./rew/stats
-export stats
+import ./rew/ml
+export ml
 
 import ./rew/prob
 export prob
